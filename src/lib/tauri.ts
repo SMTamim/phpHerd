@@ -29,6 +29,36 @@ export const getPhpExtensions = (version: string) =>
 export const togglePhpExtension = (version: string, extension: string, enabled: boolean) =>
   invoke<void>("toggle_php_extension", { version, extension, enabled });
 
+// -- Node commands --
+export interface NodeVersionInfo {
+  version: string;
+  full_version: string | null;
+  is_active: boolean;
+  is_installed: boolean;
+  path: string;
+}
+
+export const getNodeVersions = () => invoke<NodeVersionInfo[]>("get_node_versions");
+export const getCurrentNodeVersion = () => invoke<string | null>("get_current_node_version");
+export const installNodeVersion = (version: string) =>
+  invoke<void>("install_node_version", { version });
+export const switchNodeVersion = (version: string) =>
+  invoke<void>("switch_node_version", { version });
+
+// -- Nginx commands --
+export interface NginxStatusInfo {
+  running: boolean;
+  pid: number | null;
+  version: string | null;
+  installed: boolean;
+}
+
+export const getNginxStatus = () => invoke<NginxStatusInfo>("get_nginx_status");
+export const installNginx = () => invoke<void>("install_nginx");
+export const startNginx = () => invoke<void>("start_nginx");
+export const stopNginx = () => invoke<void>("stop_nginx");
+export const restartNginx = () => invoke<void>("restart_nginx");
+
 // -- Site commands --
 export const getSites = () => invoke<unknown[]>("get_sites");
 export const getParkedPaths = () => invoke<string[]>("get_parked_paths");
@@ -42,12 +72,6 @@ export const secureSite = (siteName: string) =>
   invoke<void>("secure_site", { siteName });
 export const unsecureSite = (siteName: string) =>
   invoke<void>("unsecure_site", { siteName });
-
-// -- Nginx commands --
-export const getNginxStatus = () => invoke<unknown>("get_nginx_status");
-export const startNginx = () => invoke<void>("start_nginx");
-export const stopNginx = () => invoke<void>("stop_nginx");
-export const restartNginx = () => invoke<void>("restart_nginx");
 
 // -- Service commands --
 export const getServices = () => invoke<unknown[]>("get_services");

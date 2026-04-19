@@ -1,17 +1,29 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Globe,
   Code2,
   Database,
   Server,
-  Activity,
   CheckCircle,
   XCircle,
+  Download,
+  Loader2,
+  Play,
+  Square,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useSitesStore } from "../stores/sites";
 import { usePhpStore } from "../stores/php";
 import { useServicesStore } from "../stores/services";
-import { getPhpVersions } from "../lib/tauri";
+import {
+  getPhpVersions,
+  getNginxStatus,
+  installNginx,
+  startNginx,
+  stopNginx,
+  type NginxStatusInfo,
+} from "../lib/tauri";
+import toast from "react-hot-toast";
 
 function StatCard({
   icon: Icon,
@@ -52,11 +64,24 @@ function StatCard({
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const sites = useSitesStore((s) => s.sites);
   const currentPhp = usePhpStore((s) => s.currentVersion);
   const setVersions = usePhpStore((s) => s.setVersions);
   const services = useServicesStore((s) => s.services);
   const runningServices = services.filter((s) => s.status === "Running");
+
+  const [nginx, setNginx] = useState<NginxStatusInfo | null>(null);
+  const [nginxLoading, setNginxLoading] = useState(false);
+
+  const refreshNginx = async () => {
+    try {
+      const status = await getNginxStatus();
+      setNginx(status);
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     getPhpVersions()
@@ -72,7 +97,44 @@ export default function Dashboard() {
         )
       )
       .catch(() => {});
+    refreshNginx();
   }, []);
+
+  const handleNginxToggle = async () => {
+    if (!nginx) return;
+    setNginxLoading(true);
+
+    try {
+      if (!nginx.installed) {
+        toast("Installing Nginx...");
+        await installNginx();
+        toast.success("Nginx installed!");
+        await refreshNginx();
+      } else if (nginx.running) {
+        await stopNginx();
+        toast.success("Nginx stopped");
+        await refreshNginx();
+      } else {
+        await startNginx();
+        toast.success("Nginx started!");
+        await refreshNginx();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg);
+    } finally {
+      setNginxLoading(false);
+    }
+  };
+
+  const nginxStatus = nginx?.running ? "running" : "stopped";
+  const nginxValue = !nginx
+    ? "..."
+    : !nginx.installed
+      ? "Not Installed"
+      : nginx.running
+        ? `Running${nginx.version ? ` (${nginx.version})` : ""}`
+        : "Stopped";
 
   return (
     <div>
@@ -92,7 +154,61 @@ export default function Dashboard() {
           label="Services"
           value={`${runningServices.length}/${services.length}`}
         />
-        <StatCard icon={Server} label="Nginx" value="Ready" status="stopped" />
+        <StatCard
+          icon={Server}
+          label="Nginx"
+          value={nginxValue}
+          status={nginx ? nginxStatus : "none"}
+        />
+      </div>
+
+      {/* Nginx Controls */}
+      <div className="bg-surface rounded-xl border border-border p-6 mb-8">
+        <h2 className="text-lg font-semibold text-text-primary mb-4">
+          Nginx Web Server
+        </h2>
+        <div className="flex items-center gap-4">
+          {nginx && !nginx.installed ? (
+            <button
+              onClick={handleNginxToggle}
+              disabled={nginxLoading}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary-hover transition-colors disabled:opacity-50"
+            >
+              {nginxLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              Install Nginx
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={handleNginxToggle}
+                disabled={nginxLoading}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-colors disabled:opacity-50 ${
+                  nginx?.running
+                    ? "bg-danger hover:bg-red-600"
+                    : "bg-success hover:bg-green-600"
+                }`}
+              >
+                {nginxLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : nginx?.running ? (
+                  <Square className="w-4 h-4" />
+                ) : (
+                  <Play className="w-4 h-4" />
+                )}
+                {nginx?.running ? "Stop" : "Start"}
+              </button>
+              {nginx?.version && (
+                <span className="text-sm text-text-muted font-mono">
+                  v{nginx.version}
+                </span>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Quick Actions */}
@@ -101,33 +217,42 @@ export default function Dashboard() {
           Quick Actions
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary-light/50 transition-colors text-left">
-            <Activity className="w-5 h-5 text-primary" />
-            <div>
-              <p className="text-sm font-medium text-text-primary">
-                Start All Services
-              </p>
-              <p className="text-xs text-text-secondary">
-                Start Nginx, PHP-FPM, and DNS
-              </p>
-            </div>
-          </button>
-          <button className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary-light/50 transition-colors text-left">
+          <button
+            onClick={() => navigate("/sites")}
+            className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary-light/50 transition-colors text-left"
+          >
             <Globe className="w-5 h-5 text-primary" />
             <div>
               <p className="text-sm font-medium text-text-primary">
-                Add New Site
+                Manage Sites
               </p>
               <p className="text-xs text-text-secondary">
-                Link or park a project directory
+                Link or park project directories
               </p>
             </div>
           </button>
-          <button className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary-light/50 transition-colors text-left">
+          <button
+            onClick={() => navigate("/php")}
+            className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary-light/50 transition-colors text-left"
+          >
+            <Code2 className="w-5 h-5 text-primary" />
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                PHP Versions
+              </p>
+              <p className="text-xs text-text-secondary">
+                Install and switch PHP versions
+              </p>
+            </div>
+          </button>
+          <button
+            onClick={() => navigate("/services")}
+            className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary-light/50 transition-colors text-left"
+          >
             <Database className="w-5 h-5 text-primary" />
             <div>
               <p className="text-sm font-medium text-text-primary">
-                Add Service
+                Services
               </p>
               <p className="text-xs text-text-secondary">
                 MySQL, Redis, PostgreSQL, etc.

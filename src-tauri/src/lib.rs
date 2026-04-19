@@ -85,6 +85,7 @@ pub fn run() {
             commands::sites::secure_site,
             commands::sites::unsecure_site,
             commands::nginx::get_nginx_status,
+            commands::nginx::install_nginx,
             commands::nginx::start_nginx,
             commands::nginx::stop_nginx,
             commands::nginx::restart_nginx,

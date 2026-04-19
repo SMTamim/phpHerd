@@ -4,7 +4,6 @@ import {
   Download,
   Circle,
   Loader2,
-  Trash2,
 } from "lucide-react";
 import { usePhpStore, type PhpVersion, type InstallProgress } from "../stores/php";
 import {
@@ -48,9 +47,9 @@ function PhpVersionCard({ version }: { version: PhpVersion }) {
 
     try {
       await installPhpVersion(version.version);
-      // Progress events will update the UI, but mark complete on success
       toast.success(`PHP ${version.version} installed!`);
-      // Refresh the version list
+      // Clear progress and refresh version list
+      setInstallProgress(version.version, null);
       refreshVersions();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

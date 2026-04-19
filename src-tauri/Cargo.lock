@@ -2914,6 +2914,7 @@ dependencies = [
  "clap",
  "dirs",
  "flate2",
+ "futures-util",
  "notify",
  "rcgen",
  "reqwest 0.12.28",

@@ -33,6 +33,8 @@ pub struct GeneralSettings {
     pub auto_start: bool,
     pub smtp_port: u16,
     pub dump_port: u16,
+    #[serde(default)]
+    pub active_node: Option<String>,
 }
 
 impl Default for SitesConfig {
@@ -64,6 +66,7 @@ impl Default for GeneralSettings {
             auto_start: true,
             smtp_port: 2525,
             dump_port: 9912,
+            active_node: None,
         }
     }
 }
