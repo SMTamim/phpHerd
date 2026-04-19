@@ -14,6 +14,7 @@ import {
   switchPhpVersion,
   getPhpExtensions,
   togglePhpExtension,
+  restartNginx,
   listenToEvent,
 } from "../lib/tauri";
 import toast from "react-hot-toast";
@@ -42,6 +43,7 @@ function ExtensionsModal({
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [changed, setChanged] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -69,6 +71,7 @@ function ExtensionsModal({
         )
       );
       toast.success(`${ext.name} ${ext.enabled ? "disabled" : "enabled"}`);
+      setChanged(true);
     } catch (err) {
       toast.error(String(err));
     } finally {
@@ -93,6 +96,19 @@ function ExtensionsModal({
   const otherExts = filtered.filter((e) => !LARAVEL_REQUIRED.has(e.name));
   const missingLaravel = laravelExts.filter((e) => !e.enabled);
 
+  const handleClose = async () => {
+    if (changed) {
+      toast("Restarting PHP-CGI to apply changes...");
+      try {
+        await restartNginx();
+        toast.success("PHP-CGI restarted with new extensions");
+      } catch {
+        // Nginx may not be running — that's fine
+      }
+    }
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col animate-fade-in">
@@ -105,10 +121,11 @@ function ExtensionsModal({
             <p className="text-xs text-text-secondary mt-0.5">
               {extensions.filter((e) => e.enabled).length} of{" "}
               {extensions.length} enabled
+              {changed && " — restart pending"}
             </p>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 rounded-lg hover:bg-gray-100 text-text-muted hover:text-text-primary transition-colors"
           >
             <X className="w-5 h-5" />
