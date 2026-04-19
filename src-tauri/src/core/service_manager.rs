@@ -94,8 +94,8 @@ impl ServiceManager {
             match service_type {
                 "mysql" => {
                     let full_ver = match version {
-                        "8.0" => "8.0.42",
-                        "8.4" => "8.4.5",
+                        "8.0" => "8.0.45",
+                        "8.4" => "8.4.8",
                         _ => return None,
                     };
                     Some(DownloadInfo {
@@ -222,6 +222,7 @@ impl ServiceManager {
 
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::limited(10))
+            .user_agent("phpHerd/0.1.0")
             .build()?;
         let response = client.get(&info.url).send().await?;
 
