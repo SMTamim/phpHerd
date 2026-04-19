@@ -72,6 +72,7 @@ pub fn run() {
             commands::php::get_php_versions,
             commands::php::get_current_php_version,
             commands::php::install_php_version,
+            commands::php::regenerate_php_ini,
             commands::php::uninstall_php_version,
             commands::php::switch_php_version,
             commands::php::get_php_extensions,

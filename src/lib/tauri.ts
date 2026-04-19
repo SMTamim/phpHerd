@@ -20,6 +20,8 @@ export const getPhpVersions = () => invoke<PhpVersionInfo[]>("get_php_versions")
 export const getCurrentPhpVersion = () => invoke<string>("get_current_php_version");
 export const installPhpVersion = (version: string) =>
   invoke<void>("install_php_version", { version });
+export const regeneratePhpIni = (version: string) =>
+  invoke<void>("regenerate_php_ini", { version });
 export const uninstallPhpVersion = (version: string) =>
   invoke<void>("uninstall_php_version", { version });
 export const switchPhpVersion = (version: string) =>

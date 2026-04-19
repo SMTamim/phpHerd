@@ -301,11 +301,30 @@ impl PhpManager {
         Ok(())
     }
 
-    /// Generate a sensible default php.ini for a freshly installed version
-    fn generate_default_ini(version: &str) -> Result<()> {
-        let version_dir = Self::version_dir(version);
+    /// All extensions we want enabled by default (Laravel + common)
+    fn desired_extensions() -> Vec<&'static str> {
+        vec![
+            // Laravel required
+            "bcmath", "ctype", "curl", "dom", "fileinfo", "filter",
+            "gd", "iconv", "intl", "mbstring", "openssl", "pdo",
+            "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "phar",
+            "session", "sodium", "tokenizer", "xml", "xmlwriter", "zip",
+            // Common extras
+            "bz2", "calendar", "exif", "ftp", "gettext",
+            "gmp", "ldap", "mysqli", "odbc", "pdo_odbc",
+            "shmop", "simplexml", "soap", "sockets",
+            "sqlite3", "xsl",
+        ]
+    }
 
-        // Look for php.ini-development or php.ini-production to use as base
+    /// Generate a sensible default php.ini for a freshly installed version.
+    /// Avoids duplicate extension loading by uncommenting existing lines
+    /// in the base ini instead of appending new ones.
+    pub fn generate_default_ini(version: &str) -> Result<()> {
+        let version_dir = Self::version_dir(version);
+        let ext_dir = version_dir.join("ext");
+
+        // Load base ini
         let dev_ini = version_dir.join("php.ini-development");
         let prod_ini = version_dir.join("php.ini-production");
 
@@ -314,15 +333,65 @@ impl PhpManager {
         } else if prod_ini.exists() {
             std::fs::read_to_string(&prod_ini)?
         } else {
-            // Generate a minimal php.ini
             String::new()
         };
 
         let ini_path = version_dir.join("php.ini");
 
+        // Build the set of extensions we want enabled (only if DLL/SO exists)
+        let desired = Self::desired_extensions();
+        let mut want_enabled: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for ext in &desired {
+            #[cfg(target_os = "windows")]
+            {
+                if ext_dir.join(format!("php_{}.dll", ext)).exists() {
+                    want_enabled.insert(ext.to_string());
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                if ext_dir.join(format!("{}.so", ext)).exists() {
+                    want_enabled.insert(ext.to_string());
+                }
+            }
+        }
+
         if !base_content.is_empty() {
-            // Use the bundled ini as base, with a few overrides appended
-            let mut content = base_content;
+            // Process the base ini line-by-line:
+            // - Uncomment ;extension=X lines for extensions we want
+            // - Track which extensions are already handled
+            let mut already_present: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut lines: Vec<String> = Vec::new();
+
+            for line in base_content.lines() {
+                let trimmed = line.trim();
+
+                // Check for commented extension lines: ;extension=curl
+                if let Some(rest) = trimmed.strip_prefix(';') {
+                    let rest = rest.trim();
+                    if let Some(ext_name) = rest.strip_prefix("extension=") {
+                        let ext_name = ext_name.trim();
+                        if want_enabled.contains(ext_name) {
+                            // Uncomment it
+                            lines.push(format!("extension={}", ext_name));
+                            already_present.insert(ext_name.to_string());
+                            continue;
+                        }
+                    }
+                }
+
+                // Check for already-uncommented extension lines
+                if let Some(ext_name) = trimmed.strip_prefix("extension=") {
+                    let ext_name = ext_name.trim();
+                    already_present.insert(ext_name.to_string());
+                }
+
+                lines.push(line.to_string());
+            }
+
+            let mut content = lines.join("\n");
+
+            // Append phpHerd overrides
             content.push_str("\n\n; === phpHerd overrides ===\n");
             content.push_str("memory_limit = 512M\n");
             content.push_str("max_execution_time = 300\n");
@@ -330,8 +399,6 @@ impl PhpManager {
             content.push_str("post_max_size = 100M\n");
             content.push_str("date.timezone = UTC\n");
 
-            // Enable extension_dir relative to the PHP directory
-            let ext_dir = version_dir.join("ext");
             if ext_dir.exists() {
                 content.push_str(&format!(
                     "extension_dir = \"{}\"\n",
@@ -339,71 +406,38 @@ impl PhpManager {
                 ));
             }
 
-            // Enable Laravel-required + common extensions
-            #[cfg(target_os = "windows")]
-            {
-                // Extensions required by Laravel and common PHP frameworks
-                let laravel_required = [
-                    "bcmath", "ctype", "curl", "dom", "fileinfo", "filter",
-                    "gd", "iconv", "intl", "mbstring", "openssl", "pdo",
-                    "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "phar",
-                    "session", "tokenizer", "xml", "xmlwriter", "zip",
-                ];
-                let common_extras = [
-                    "bz2", "calendar", "exif", "ftp", "gettext",
-                    "gmp", "ldap", "mysqli", "odbc", "pdo_odbc",
-                    "readline", "shmop", "simplexml", "soap", "sockets",
-                    "sodium", "sqlite3", "sysvshm", "xsl",
-                ];
+            // Add extensions that weren't in the base ini at all
+            let missing: Vec<&String> = want_enabled
+                .iter()
+                .filter(|e| !already_present.contains(e.as_str()))
+                .collect();
 
-                content.push_str("\n; === Laravel required extensions ===\n");
-                for ext in &laravel_required {
-                    let dll = ext_dir.join(format!("php_{}.dll", ext));
-                    if dll.exists() {
-                        content.push_str(&format!("extension={}\n", ext));
-                    }
-                }
-
-                content.push_str("\n; === Common extras ===\n");
-                for ext in &common_extras {
-                    let dll = ext_dir.join(format!("php_{}.dll", ext));
-                    if dll.exists() {
-                        content.push_str(&format!("extension={}\n", ext));
-                    }
-                }
-
-                // OPcache is a zend_extension
-                let opcache_dll = ext_dir.join("php_opcache.dll");
-                if opcache_dll.exists() {
-                    content.push_str("\n; === Performance ===\n");
-                    content.push_str("zend_extension=opcache\n");
-                    content.push_str("opcache.enable=1\n");
-                    content.push_str("opcache.enable_cli=1\n");
-                    content.push_str("opcache.memory_consumption=256\n");
-                    content.push_str("opcache.max_accelerated_files=20000\n");
-                }
-            }
-
-            #[cfg(not(target_os = "windows"))]
-            {
-                // On macOS/Linux, extensions are typically compiled in or loaded differently
-                content.push_str("\n; Extensions enabled by phpHerd\n");
-                let exts = [
-                    "bcmath", "ctype", "curl", "dom", "fileinfo", "gd",
-                    "iconv", "intl", "mbstring", "openssl", "pdo",
-                    "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "phar",
-                    "session", "tokenizer", "xml", "xmlwriter", "zip",
-                    "sodium", "sockets", "exif", "gmp",
-                ];
-                for ext in &exts {
+            if !missing.is_empty() {
+                content.push_str("\n; === Additional extensions ===\n");
+                for ext in &missing {
                     content.push_str(&format!("extension={}\n", ext));
                 }
             }
 
+            // OPcache (zend_extension, not extension)
+            #[cfg(target_os = "windows")]
+            let opcache_exists = ext_dir.join("php_opcache.dll").exists();
+            #[cfg(not(target_os = "windows"))]
+            let opcache_exists = ext_dir.join("opcache.so").exists();
+
+            if opcache_exists {
+                content.push_str("\n; === Performance ===\n");
+                content.push_str("zend_extension=opcache\n");
+                content.push_str("opcache.enable=1\n");
+                content.push_str("opcache.enable_cli=1\n");
+                content.push_str("opcache.memory_consumption=256\n");
+                content.push_str("opcache.max_accelerated_files=20000\n");
+            }
+
             std::fs::write(&ini_path, content)?;
         } else {
-            let ext_dir = version_dir.join("ext");
-            let content = format!(
+            // No base ini — generate from scratch
+            let mut content = String::from(
                 "; phpHerd generated php.ini\n\
                  [PHP]\n\
                  memory_limit = 512M\n\
@@ -412,10 +446,20 @@ impl PhpManager {
                  post_max_size = 100M\n\
                  date.timezone = UTC\n\
                  error_reporting = E_ALL\n\
-                 display_errors = On\n\
-                 extension_dir = \"{}\"\n",
-                ext_dir.to_string_lossy().replace('\\', "/")
+                 display_errors = On\n",
             );
+
+            if ext_dir.exists() {
+                content.push_str(&format!(
+                    "extension_dir = \"{}\"\n\n",
+                    ext_dir.to_string_lossy().replace('\\', "/")
+                ));
+            }
+
+            for ext in &want_enabled {
+                content.push_str(&format!("extension={}\n", ext));
+            }
+
             std::fs::write(&ini_path, content)?;
         }
 

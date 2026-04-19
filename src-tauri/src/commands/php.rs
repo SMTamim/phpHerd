@@ -62,6 +62,17 @@ pub async fn install_php_version(
 }
 
 #[tauri::command]
+pub async fn regenerate_php_ini(version: String) -> Result<(), String> {
+    if !PhpManager::is_installed(&version) {
+        return Err(format!("PHP {} is not installed", version));
+    }
+    PhpManager::generate_default_ini(&version)
+        .map_err(|e| format!("Failed to regenerate php.ini: {}", e))?;
+    tracing::info!("Regenerated php.ini for PHP {}", version);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn uninstall_php_version(version: String) -> Result<(), String> {
     PhpManager::uninstall_version(&version)
         .map_err(|e| format!("Failed to uninstall PHP {}: {}", version, e))

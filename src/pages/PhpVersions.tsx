@@ -14,6 +14,7 @@ import {
   switchPhpVersion,
   getPhpExtensions,
   togglePhpExtension,
+  regeneratePhpIni,
   restartNginx,
   listenToEvent,
 } from "../lib/tauri";
@@ -141,16 +142,33 @@ function ExtensionsModal({
             placeholder="Search extensions..."
             className="w-full px-3 py-2 rounded-lg border border-border text-sm focus:outline-none focus:border-primary"
           />
-          {missingLaravel.length > 0 && (
+          <div className="flex gap-2">
+            {missingLaravel.length > 0 && (
+              <button
+                onClick={() =>
+                  enableAll(missingLaravel.map((e) => e.name))
+                }
+                className="flex-1 px-3 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover transition-colors"
+              >
+                Enable Laravel required ({missingLaravel.length} missing)
+              </button>
+            )}
             <button
-              onClick={() =>
-                enableAll(missingLaravel.map((e) => e.name))
-              }
-              className="w-full px-3 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover transition-colors"
+              onClick={async () => {
+                try {
+                  await regeneratePhpIni(version);
+                  toast.success("php.ini regenerated — duplicates removed");
+                  setChanged(true);
+                  refresh();
+                } catch (err) {
+                  toast.error(String(err));
+                }
+              }}
+              className="px-3 py-2 rounded-lg border border-border text-sm text-text-secondary hover:border-primary hover:text-primary transition-colors"
             >
-              Enable all Laravel required ({missingLaravel.length} missing)
+              Regenerate php.ini
             </button>
-          )}
+          </div>
         </div>
 
         {/* Extension List */}
