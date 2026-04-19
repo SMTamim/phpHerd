@@ -378,7 +378,8 @@ impl PhpManager {
         Ok(())
     }
 
-    /// Create a shim/batch file in the bin directory that points to the active PHP
+    /// Create smart shims that check .php-version in the current directory
+    /// and fall back to the global default version.
     pub fn update_global_shim(version: &str) -> Result<()> {
         let bin_dir = AppConfig::data_dir().join("bin");
         std::fs::create_dir_all(&bin_dir)?;
@@ -388,38 +389,106 @@ impl PhpManager {
             anyhow::bail!("PHP {} binary not found at {:?}", version, php_binary);
         }
 
+        let php_dir = Self::php_dir().to_string_lossy().replace('\\', "\\\\");
+        let default_ver = version;
+
         #[cfg(target_os = "windows")]
         {
-            // Create php.cmd shim
-            let shim_path = bin_dir.join("php.cmd");
-            let content = format!(
-                "@echo off\r\n\"{}\" %*\r\n",
-                php_binary.to_string_lossy()
+            // Smart php.cmd — checks .php-version, falls back to default
+            let php_shim = format!(
+                r#"@echo off
+setlocal enabledelayedexpansion
+set "PHERD_PHP_VER={default_ver}"
+if exist ".php-version" (
+    set /p PHERD_PHP_VER=<.php-version
+)
+set "PHERD_PHP={php_dir}\\!PHERD_PHP_VER!\\php.exe"
+if not exist "!PHERD_PHP!" (
+    set "PHERD_PHP={php_dir}\\{default_ver}\\php.exe"
+)
+"!PHERD_PHP!" %*
+"#,
+                default_ver = default_ver,
+                php_dir = Self::php_dir().to_string_lossy(),
             );
-            std::fs::write(&shim_path, content)?;
+            std::fs::write(bin_dir.join("php.cmd"), php_shim)?;
 
-            // Also create a composer.cmd shim if composer.phar exists
-            let composer_phar = Self::version_dir(version).join("composer.phar");
-            if composer_phar.exists() {
-                let composer_shim = bin_dir.join("composer.cmd");
-                let content = format!(
-                    "@echo off\r\n\"{}\" \"{}\" %*\r\n",
-                    php_binary.to_string_lossy(),
-                    composer_phar.to_string_lossy()
-                );
-                std::fs::write(&composer_shim, content)?;
-            }
+            // Smart composer.cmd — uses the same PHP resolution
+            let composer_phar = bin_dir.join("composer.phar");
+            let composer_shim = format!(
+                r#"@echo off
+setlocal enabledelayedexpansion
+set "PHERD_PHP_VER={default_ver}"
+if exist ".php-version" (
+    set /p PHERD_PHP_VER=<.php-version
+)
+set "PHERD_PHP={php_dir}\\!PHERD_PHP_VER!\\php.exe"
+if not exist "!PHERD_PHP!" (
+    set "PHERD_PHP={php_dir}\\{default_ver}\\php.exe"
+)
+"!PHERD_PHP!" "{composer_phar}" %*
+"#,
+                default_ver = default_ver,
+                php_dir = Self::php_dir().to_string_lossy(),
+                composer_phar = composer_phar.to_string_lossy(),
+            );
+            std::fs::write(bin_dir.join("composer.cmd"), composer_shim)?;
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            use std::os::unix::fs::symlink;
+            // Smart php shell script
+            let php_shim = format!(
+                r#"#!/bin/sh
+PHERD_PHP_VER="{default_ver}"
+if [ -f ".php-version" ]; then
+    PHERD_PHP_VER=$(cat .php-version)
+fi
+PHERD_PHP="{php_dir}/$PHERD_PHP_VER/bin/php"
+if [ ! -f "$PHERD_PHP" ]; then
+    PHERD_PHP="{php_dir}/{default_ver}/bin/php"
+fi
+exec "$PHERD_PHP" "$@"
+"#,
+                default_ver = default_ver,
+                php_dir = Self::php_dir().to_string_lossy(),
+            );
             let shim_path = bin_dir.join("php");
-            let _ = std::fs::remove_file(&shim_path);
-            symlink(&php_binary, &shim_path)?;
+            std::fs::write(&shim_path, php_shim)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&shim_path, std::fs::Permissions::from_mode(0o755))?;
+            }
+
+            // Smart composer shell script
+            let composer_phar = bin_dir.join("composer.phar");
+            let composer_shim = format!(
+                r#"#!/bin/sh
+PHERD_PHP_VER="{default_ver}"
+if [ -f ".php-version" ]; then
+    PHERD_PHP_VER=$(cat .php-version)
+fi
+PHERD_PHP="{php_dir}/$PHERD_PHP_VER/bin/php"
+if [ ! -f "$PHERD_PHP" ]; then
+    PHERD_PHP="{php_dir}/{default_ver}/bin/php"
+fi
+exec "$PHERD_PHP" "{composer_phar}" "$@"
+"#,
+                default_ver = default_ver,
+                php_dir = Self::php_dir().to_string_lossy(),
+                composer_phar = composer_phar.to_string_lossy(),
+            );
+            let shim_path = bin_dir.join("composer");
+            std::fs::write(&shim_path, composer_shim)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&shim_path, std::fs::Permissions::from_mode(0o755))?;
+            }
         }
 
-        tracing::info!("Updated global PHP shim to version {}", version);
+        tracing::info!("Updated global PHP/Composer shims (default: {})", version);
         Ok(())
     }
 

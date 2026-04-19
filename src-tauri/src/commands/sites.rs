@@ -126,7 +126,13 @@ pub async fn isolate_site_php(
         .iter_mut()
         .find(|s| s.name == site_name)
     {
-        site.php_version = Some(php_version);
+        site.php_version = Some(php_version.clone());
+
+        // Write .php-version file in the project root so CLI shims pick it up
+        let version_file = std::path::Path::new(&site.path).join(".php-version");
+        std::fs::write(&version_file, &php_version).ok();
+        tracing::info!("Wrote .php-version ({}) to {}", php_version, site.path);
+
         config.save().map_err(|e| e.to_string())?;
     }
     Ok(())
