@@ -38,6 +38,24 @@ pub struct DropDbUserRequest {
     pub username: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct GrantAccessRequest {
+    pub service_type: String,
+    pub version: String,
+    pub port: u16,
+    pub username: String,
+    pub db_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RevokeAccessRequest {
+    pub service_type: String,
+    pub version: String,
+    pub port: u16,
+    pub username: String,
+    pub db_name: String,
+}
+
 /// Find the CLI client binary for a database service
 fn find_client_binary(service_type: &str, version: &str) -> Result<std::path::PathBuf, String> {
     let bin_dir = ServiceManager::service_bin_dir(service_type, version);
@@ -268,4 +286,109 @@ pub async fn drop_database(
 
     tracing::info!("Dropped database '{}'", db_name);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn grant_db_access(request: GrantAccessRequest) -> Result<(), String> {
+    match request.service_type.as_str() {
+        "mysql" | "mariadb" => {
+            let sql = format!(
+                "GRANT ALL PRIVILEGES ON `{}`.* TO '{}'@'localhost'; FLUSH PRIVILEGES;",
+                request.db_name, request.username
+            );
+            run_sql(&request.service_type, &request.version, request.port, &sql)?;
+        }
+        "postgresql" => {
+            let sql = format!(
+                "GRANT ALL PRIVILEGES ON DATABASE \"{}\" TO \"{}\";",
+                request.db_name, request.username
+            );
+            run_sql(&request.service_type, &request.version, request.port, &sql)?;
+        }
+        _ => return Err(format!("Grant not supported for {}", request.service_type)),
+    }
+
+    tracing::info!("Granted '{}' access to '{}'", request.username, request.db_name);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn revoke_db_access(request: RevokeAccessRequest) -> Result<(), String> {
+    match request.service_type.as_str() {
+        "mysql" | "mariadb" => {
+            let sql = format!(
+                "REVOKE ALL PRIVILEGES ON `{}`.* FROM '{}'@'localhost'; FLUSH PRIVILEGES;",
+                request.db_name, request.username
+            );
+            run_sql(&request.service_type, &request.version, request.port, &sql)?;
+        }
+        "postgresql" => {
+            let sql = format!(
+                "REVOKE ALL PRIVILEGES ON DATABASE \"{}\" FROM \"{}\";",
+                request.db_name, request.username
+            );
+            run_sql(&request.service_type, &request.version, request.port, &sql)?;
+        }
+        _ => return Err(format!("Revoke not supported for {}", request.service_type)),
+    }
+
+    tracing::info!("Revoked '{}' access from '{}'", request.username, request.db_name);
+    Ok(())
+}
+
+/// List which databases a user has access to
+#[tauri::command]
+pub async fn list_user_grants(
+    service_type: String,
+    version: String,
+    port: u16,
+    username: String,
+) -> Result<Vec<String>, String> {
+    let output = match service_type.as_str() {
+        "mysql" | "mariadb" => {
+            let sql = format!("SHOW GRANTS FOR '{}'@'localhost';", username);
+            run_sql(&service_type, &version, port, &sql)?
+        }
+        "postgresql" => {
+            let sql = format!(
+                "SELECT datname FROM pg_database d JOIN pg_roles r ON d.datdba = r.oid WHERE r.rolname = '{}' \
+                 UNION \
+                 SELECT datname FROM pg_database, aclexplode(datacl) a JOIN pg_roles r ON a.grantee = r.oid WHERE r.rolname = '{}';",
+                username, username
+            );
+            run_sql(&service_type, &version, port, &sql)?
+        }
+        _ => return Err(format!("Grants not supported for {}", service_type)),
+    };
+
+    // For MySQL: parse GRANT lines to extract database names
+    let mut dbs = Vec::new();
+    match service_type.as_str() {
+        "mysql" | "mariadb" => {
+            for line in output.lines() {
+                let line = line.trim();
+                // GRANT ALL PRIVILEGES ON `mydb`.* TO ...
+                if let Some(on_pos) = line.find(" ON ") {
+                    let after_on = &line[on_pos + 4..];
+                    if let Some(dot_pos) = after_on.find(".*") {
+                        let db = after_on[..dot_pos].trim().trim_matches('`');
+                        if db != "*" {
+                            dbs.push(db.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        "postgresql" => {
+            for line in output.lines() {
+                let name = line.trim();
+                if !name.is_empty() {
+                    dbs.push(name.to_string());
+                }
+            }
+        }
+        _ => {}
+    }
+
+    Ok(dbs)
 }

@@ -147,6 +147,22 @@ export const createDatabase = (request: {
 }) => invoke<void>("create_database", { request });
 export const dropDatabase = (serviceType: string, version: string, port: number, dbName: string) =>
   invoke<void>("drop_database", { serviceType, version, port, dbName });
+export const grantDbAccess = (request: {
+  service_type: string;
+  version: string;
+  port: number;
+  username: string;
+  db_name: string;
+}) => invoke<void>("grant_db_access", { request });
+export const revokeDbAccess = (request: {
+  service_type: string;
+  version: string;
+  port: number;
+  username: string;
+  db_name: string;
+}) => invoke<void>("revoke_db_access", { request });
+export const listUserGrants = (serviceType: string, version: string, port: number, username: string) =>
+  invoke<string[]>("list_user_grants", { serviceType, version, port, username });
 
 // -- Settings commands --
 export const getSettings = () => invoke<unknown>("get_settings");

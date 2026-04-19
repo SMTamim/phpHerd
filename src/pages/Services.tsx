@@ -26,6 +26,9 @@ import {
   listDatabases,
   createDatabase,
   dropDatabase,
+  grantDbAccess,
+  revokeDbAccess,
+  listUserGrants,
   type DbUser,
   type DbName,
   type ServiceInfoData,
@@ -57,12 +60,15 @@ async function refreshServices() {
 const DB_TYPES = ["mysql", "mariadb", "postgresql"];
 
 function DatabasePanel({ service }: { service: ServiceInstance }) {
-  const [tab, setTab] = useState<"users" | "databases">("users");
+  const [tab, setTab] = useState<"users" | "databases" | "access">("users");
   const [users, setUsers] = useState<DbUser[]>([]);
   const [databases, setDatabases] = useState<DbName[]>([]);
   const [newUser, setNewUser] = useState("");
   const [newPass, setNewPass] = useState("");
   const [newDb, setNewDb] = useState("");
+  const [grantUser, setGrantUser] = useState("");
+  const [grantDb, setGrantDb] = useState("");
+  const [userGrants, setUserGrants] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(false);
 
   const refresh = async () => {
@@ -73,6 +79,21 @@ function DatabasePanel({ service }: { service: ServiceInstance }) {
       ]);
       setUsers(u);
       setDatabases(d);
+
+      // Load grants for non-system users
+      const grants: Record<string, string[]> = {};
+      for (const user of u) {
+        if (user.username !== "root" && user.username !== "postgres" && user.username !== "mysql.sys" && user.username !== "mysql.session" && user.username !== "mysql.infoschema") {
+          try {
+            grants[user.username] = await listUserGrants(
+              service.serviceType, service.version, service.port, user.username
+            );
+          } catch {
+            grants[user.username] = [];
+          }
+        }
+      }
+      setUserGrants(grants);
     } catch (err) {
       toast.error(`Failed to query ${service.serviceType}: ${err}`);
     }
@@ -149,7 +170,48 @@ function DatabasePanel({ service }: { service: ServiceInstance }) {
     }
   };
 
+  const handleGrant = async () => {
+    if (!grantUser || !grantDb) return;
+    setLoading(true);
+    try {
+      await grantDbAccess({
+        service_type: service.serviceType,
+        version: service.version,
+        port: service.port,
+        username: grantUser,
+        db_name: grantDb,
+      });
+      toast.success(`Granted '${grantUser}' access to '${grantDb}'`);
+      setGrantUser("");
+      setGrantDb("");
+      refresh();
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRevoke = async (username: string, dbName: string) => {
+    try {
+      await revokeDbAccess({
+        service_type: service.serviceType,
+        version: service.version,
+        port: service.port,
+        username,
+        db_name: dbName,
+      });
+      toast.success(`Revoked '${username}' access from '${dbName}'`);
+      refresh();
+    } catch (err) {
+      toast.error(String(err));
+    }
+  };
+
   const systemDbs = ["mysql", "information_schema", "performance_schema", "sys", "postgres", "template0", "template1"];
+  const systemUsers = ["root", "postgres", "mysql.sys", "mysql.session", "mysql.infoschema"];
+  const nonSystemUsers = users.filter((u) => !systemUsers.includes(u.username));
+  const nonSystemDbs = databases.filter((d) => !systemDbs.includes(d.name));
 
   return (
     <div className="mt-4 pt-4 border-t border-border">
@@ -172,6 +234,15 @@ function DatabasePanel({ service }: { service: ServiceInstance }) {
         >
           <HardDrive className="w-3 h-3" />
           Databases
+        </button>
+        <button
+          onClick={() => setTab("access")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            tab === "access" ? "bg-primary text-white" : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+          }`}
+        >
+          <Database className="w-3 h-3" />
+          Access
         </button>
       </div>
 
@@ -269,6 +340,79 @@ function DatabasePanel({ service }: { service: ServiceInstance }) {
             {databases.length === 0 && (
               <p className="text-xs text-text-muted py-2">No databases found. Is the service running?</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {tab === "access" && (
+        <div>
+          {/* Grant access form */}
+          <div className="flex gap-2 mb-3">
+            <select
+              value={grantUser}
+              onChange={(e) => setGrantUser(e.target.value)}
+              className="flex-1 px-2 py-1.5 rounded-lg border border-border text-xs focus:outline-none focus:border-primary"
+            >
+              <option value="">Select user...</option>
+              {nonSystemUsers.map((u) => (
+                <option key={u.username} value={u.username}>
+                  {u.username}
+                </option>
+              ))}
+            </select>
+            <select
+              value={grantDb}
+              onChange={(e) => setGrantDb(e.target.value)}
+              className="flex-1 px-2 py-1.5 rounded-lg border border-border text-xs focus:outline-none focus:border-primary"
+            >
+              <option value="">Select database...</option>
+              {nonSystemDbs.map((d) => (
+                <option key={d.name} value={d.name}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleGrant}
+              disabled={loading || !grantUser || !grantDb}
+              className="px-3 py-1.5 rounded-lg bg-success text-white text-xs font-medium hover:bg-green-600 disabled:opacity-50"
+            >
+              Grant
+            </button>
+          </div>
+
+          {/* Current grants per user */}
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {nonSystemUsers.length === 0 && (
+              <p className="text-xs text-text-muted py-2">Create a user first to manage access.</p>
+            )}
+            {nonSystemUsers.map((u) => (
+              <div key={u.username} className="p-2 rounded-lg bg-gray-50">
+                <p className="text-xs font-medium text-text-primary mb-1">
+                  {u.username}
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {(userGrants[u.username] || []).length > 0 ? (
+                    (userGrants[u.username] || []).map((db) => (
+                      <span
+                        key={db}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs"
+                      >
+                        {db}
+                        <button
+                          onClick={() => handleRevoke(u.username, db)}
+                          className="hover:text-danger"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-text-muted">No specific database grants</span>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
