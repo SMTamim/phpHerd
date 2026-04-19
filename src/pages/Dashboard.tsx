@@ -19,6 +19,8 @@ import {
   getPhpVersions,
   getNginxStatus,
   installPhpmyadmin,
+  installComposer,
+  getComposerStatus,
   syncHostsFile,
   listenToEvent,
   installNginx,
@@ -80,6 +82,9 @@ export default function Dashboard() {
   const [nginxLoading, setNginxLoading] = useState(false);
   const [pmaInstalling, setPmaInstalling] = useState(false);
   const [pmaProgress, setPmaProgress] = useState("");
+  const [composerInstalled, setComposerInstalled] = useState(false);
+  const [composerVersion, setComposerVersion] = useState<string | null>(null);
+  const [composerInstalling, setComposerInstalling] = useState(false);
   const [dnsLoading, setDnsLoading] = useState(false);
   const [startingAll, setStartingAll] = useState(false);
 
@@ -107,6 +112,12 @@ export default function Dashboard() {
       )
       .catch(() => {});
     refreshNginx();
+    getComposerStatus()
+      .then((s) => {
+        setComposerInstalled(s.installed);
+        setComposerVersion(s.version);
+      })
+      .catch(() => {});
 
     let unlisten: (() => void) | null = null;
     listenToEvent<{ stage: string; progress: number; message: string }>(
@@ -204,6 +215,21 @@ export default function Dashboard() {
       toast.error(msg);
     } finally {
       setDnsLoading(false);
+    }
+  };
+
+  const handleComposerInstall = async () => {
+    setComposerInstalling(true);
+    try {
+      await installComposer();
+      toast.success("Composer installed!");
+      const s = await getComposerStatus();
+      setComposerInstalled(s.installed);
+      setComposerVersion(s.version);
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setComposerInstalling(false);
     }
   };
 
@@ -410,6 +436,29 @@ export default function Dashboard() {
               </p>
               <p className="text-xs text-text-secondary">
                 {pmaInstalling ? pmaProgress : "Install at pma.test"}
+              </p>
+            </div>
+          </button>
+          <button
+            onClick={handleComposerInstall}
+            disabled={composerInstalling || composerInstalled}
+            className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary-light/50 transition-colors text-left disabled:opacity-60"
+          >
+            {composerInstalling ? (
+              <Loader2 className="w-5 h-5 text-primary animate-spin" />
+            ) : (
+              <Code2 className="w-5 h-5 text-primary" />
+            )}
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                {composerInstalled ? "Composer Installed" : "Install Composer"}
+              </p>
+              <p className="text-xs text-text-secondary">
+                {composerVersion
+                  ? `v${composerVersion}`
+                  : composerInstalling
+                    ? "Downloading..."
+                    : "PHP dependency manager"}
               </p>
             </div>
           </button>

@@ -45,6 +45,22 @@ export const installNodeVersion = (version: string) =>
 export const switchNodeVersion = (version: string) =>
   invoke<void>("switch_node_version", { version });
 
+// -- Composer commands --
+export interface ComposerStatusInfo {
+  installed: boolean;
+  version: string | null;
+  path: string;
+}
+export interface ComposerOutputInfo {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+}
+export const getComposerStatus = () => invoke<ComposerStatusInfo>("get_composer_status");
+export const installComposer = () => invoke<void>("install_composer");
+export const runComposer = (sitePath: string, args: string[]) =>
+  invoke<ComposerOutputInfo>("run_composer", { sitePath, args });
+
 // -- DNS commands --
 export const syncHostsFile = () => invoke<number>("sync_hosts_file");
 

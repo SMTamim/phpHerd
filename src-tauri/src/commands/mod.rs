@@ -1,3 +1,4 @@
+pub mod composer;
 pub mod database;
 pub mod dns;
 pub mod dumps;

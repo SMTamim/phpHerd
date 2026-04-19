@@ -8,6 +8,8 @@ import {
   Trash2,
   ExternalLink,
   X,
+  Package,
+  Loader2,
 } from "lucide-react";
 import { useSitesStore, type Site } from "../stores/sites";
 import {
@@ -21,6 +23,7 @@ import {
   unsecureSite,
   isolateSitePhp,
   pickFolder,
+  runComposer,
   type SiteInfo,
 } from "../lib/tauri";
 import { usePhpStore } from "../stores/php";
@@ -53,6 +56,27 @@ function SiteCard({ site }: { site: Site }) {
   const phpVersions = usePhpStore((s) => s.versions);
   const installedPhp = phpVersions.filter((v) => v.isInstalled);
   const [showIsolate, setShowIsolate] = useState(false);
+  const [composerRunning, setComposerRunning] = useState(false);
+  const [composerOutput, setComposerOutput] = useState<string | null>(null);
+
+  const handleComposer = async (cmd: string) => {
+    setComposerRunning(true);
+    setComposerOutput(null);
+    try {
+      const result = await runComposer(site.path, cmd.split(" "));
+      if (result.success) {
+        toast.success(`composer ${cmd} completed`);
+        setComposerOutput(result.stdout.slice(-500));
+      } else {
+        toast.error(`composer ${cmd} failed`);
+        setComposerOutput(result.stderr.slice(-500));
+      }
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setComposerRunning(false);
+    }
+  };
 
   const handleSecureToggle = async () => {
     try {
@@ -198,6 +222,53 @@ function SiteCard({ site }: { site: Site }) {
           </>
         )}
       </div>
+
+      {/* Composer Actions */}
+      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
+        <button
+          onClick={() => handleComposer("install")}
+          disabled={composerRunning}
+          className="flex items-center gap-1 text-xs text-text-secondary hover:text-primary transition-colors disabled:opacity-50"
+        >
+          {composerRunning ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <Package className="w-3 h-3" />
+          )}
+          composer install
+        </button>
+        <span className="text-border">|</span>
+        <button
+          onClick={() => handleComposer("update")}
+          disabled={composerRunning}
+          className="text-xs text-text-secondary hover:text-primary transition-colors disabled:opacity-50"
+        >
+          update
+        </button>
+        <span className="text-border">|</span>
+        <button
+          onClick={() => handleComposer("dump-autoload")}
+          disabled={composerRunning}
+          className="text-xs text-text-secondary hover:text-primary transition-colors disabled:opacity-50"
+        >
+          dump-autoload
+        </button>
+      </div>
+
+      {/* Composer Output */}
+      {composerOutput && (
+        <div className="mt-2 relative">
+          <button
+            onClick={() => setComposerOutput(null)}
+            className="absolute top-1 right-1 text-text-muted hover:text-text-primary"
+          >
+            <X className="w-3 h-3" />
+          </button>
+          <pre className="text-xs bg-gray-900 text-green-400 p-3 rounded-lg overflow-x-auto max-h-32 font-mono whitespace-pre-wrap">
+            {composerOutput}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
