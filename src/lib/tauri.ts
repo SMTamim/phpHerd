@@ -60,10 +60,12 @@ export const stopNginx = () => invoke<void>("stop_nginx");
 export const restartNginx = () => invoke<void>("restart_nginx");
 
 // -- Site commands --
-export const getSites = () => invoke<unknown[]>("get_sites");
+export const getSites = () => invoke<SiteInfo[]>("get_sites");
 export const getParkedPaths = () => invoke<string[]>("get_parked_paths");
 export const parkDirectory = (path: string) =>
   invoke<void>("park_directory", { path });
+export const unparkDirectory = (path: string) =>
+  invoke<void>("unpark_directory", { path });
 export const linkSite = (name: string, path: string) =>
   invoke<void>("link_site", { name, path });
 export const unlinkSite = (name: string) =>
@@ -72,6 +74,8 @@ export const secureSite = (siteName: string) =>
   invoke<void>("secure_site", { siteName });
 export const unsecureSite = (siteName: string) =>
   invoke<void>("unsecure_site", { siteName });
+export const isolateSitePhp = (siteName: string, phpVersion: string) =>
+  invoke<void>("isolate_site_php", { siteName, phpVersion });
 
 // -- Service commands --
 export const getServices = () => invoke<unknown[]>("get_services");
@@ -89,6 +93,24 @@ export const stopService = (serviceId: string) =>
 export const getSettings = () => invoke<unknown>("get_settings");
 export const updateSettings = (settings: unknown) =>
   invoke<void>("update_settings", { settings });
+
+// -- Site commands --
+export interface SiteInfo {
+  name: string;
+  path: string;
+  url: string;
+  php_version: string | null;
+  node_version: string | null;
+  secured: boolean;
+  is_parked: boolean;
+}
+
+// -- Dialog --
+export async function pickFolder(): Promise<string | null> {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const result = await open({ directory: true, multiple: false });
+  return result as string | null;
+}
 
 // -- Event listening --
 export async function listenToEvent<T>(
