@@ -1,18 +1,240 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckCircle,
   Download,
   Circle,
   Loader2,
+  Settings2,
+  X,
 } from "lucide-react";
 import { usePhpStore, type PhpVersion, type InstallProgress } from "../stores/php";
 import {
   getPhpVersions,
   installPhpVersion,
   switchPhpVersion,
+  getPhpExtensions,
+  togglePhpExtension,
   listenToEvent,
 } from "../lib/tauri";
 import toast from "react-hot-toast";
+
+// Extensions that Laravel requires — shown first and highlighted
+const LARAVEL_REQUIRED = new Set([
+  "bcmath", "ctype", "curl", "dom", "fileinfo", "filter",
+  "gd", "iconv", "intl", "mbstring", "openssl", "pdo",
+  "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "phar",
+  "session", "tokenizer", "xml", "xmlwriter", "zip",
+]);
+
+interface ExtensionInfo {
+  name: string;
+  enabled: boolean;
+}
+
+function ExtensionsModal({
+  version,
+  onClose,
+}: {
+  version: string;
+  onClose: () => void;
+}) {
+  const [extensions, setExtensions] = useState<ExtensionInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [toggling, setToggling] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const exts = await getPhpExtensions(version);
+      setExtensions(exts);
+    } catch {
+      toast.error("Failed to load extensions");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, [version]);
+
+  const handleToggle = async (ext: ExtensionInfo) => {
+    setToggling(ext.name);
+    try {
+      await togglePhpExtension(version, ext.name, !ext.enabled);
+      setExtensions((prev) =>
+        prev.map((e) =>
+          e.name === ext.name ? { ...e, enabled: !e.enabled } : e
+        )
+      );
+      toast.success(`${ext.name} ${ext.enabled ? "disabled" : "enabled"}`);
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  const enableAll = async (names: string[]) => {
+    for (const name of names) {
+      const ext = extensions.find((e) => e.name === name);
+      if (ext && !ext.enabled) {
+        await handleToggle(ext);
+      }
+    }
+  };
+
+  const filtered = extensions.filter((e) =>
+    e.name.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  const laravelExts = filtered.filter((e) => LARAVEL_REQUIRED.has(e.name));
+  const otherExts = filtered.filter((e) => !LARAVEL_REQUIRED.has(e.name));
+  const missingLaravel = laravelExts.filter((e) => !e.enabled);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col animate-fade-in">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <div>
+            <h2 className="text-lg font-bold text-text-primary">
+              PHP {version} Extensions
+            </h2>
+            <p className="text-xs text-text-secondary mt-0.5">
+              {extensions.filter((e) => e.enabled).length} of{" "}
+              {extensions.length} enabled
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-gray-100 text-text-muted hover:text-text-primary transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Search + Enable Laravel */}
+        <div className="p-4 border-b border-border space-y-3">
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Search extensions..."
+            className="w-full px-3 py-2 rounded-lg border border-border text-sm focus:outline-none focus:border-primary"
+          />
+          {missingLaravel.length > 0 && (
+            <button
+              onClick={() =>
+                enableAll(missingLaravel.map((e) => e.name))
+              }
+              className="w-full px-3 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover transition-colors"
+            >
+              Enable all Laravel required ({missingLaravel.length} missing)
+            </button>
+          )}
+        </div>
+
+        {/* Extension List */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+            </div>
+          ) : (
+            <>
+              {/* Laravel Required */}
+              {laravelExts.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
+                    Laravel Required
+                  </h3>
+                  <div className="space-y-1">
+                    {laravelExts.map((ext) => (
+                      <ExtensionRow
+                        key={ext.name}
+                        ext={ext}
+                        toggling={toggling}
+                        onToggle={handleToggle}
+                        required
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Other Extensions */}
+              {otherExts.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
+                    Other Extensions
+                  </h3>
+                  <div className="space-y-1">
+                    {otherExts.map((ext) => (
+                      <ExtensionRow
+                        key={ext.name}
+                        ext={ext}
+                        toggling={toggling}
+                        onToggle={handleToggle}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {filtered.length === 0 && (
+                <p className="text-center text-sm text-text-muted py-8">
+                  No extensions found
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExtensionRow({
+  ext,
+  toggling,
+  onToggle,
+  required,
+}: {
+  ext: ExtensionInfo;
+  toggling: string | null;
+  onToggle: (ext: ExtensionInfo) => void;
+  required?: boolean;
+}) {
+  const isToggling = toggling === ext.name;
+
+  return (
+    <div className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-gray-50">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-mono text-text-primary">{ext.name}</span>
+        {required && !ext.enabled && (
+          <span className="px-1.5 py-0.5 text-[10px] rounded bg-amber-100 text-amber-700 font-medium">
+            missing
+          </span>
+        )}
+      </div>
+      <button
+        onClick={() => onToggle(ext)}
+        disabled={isToggling}
+        className={`relative w-10 h-5 rounded-full transition-colors ${
+          ext.enabled ? "bg-primary" : "bg-gray-300"
+        } ${isToggling ? "opacity-50" : ""}`}
+      >
+        <span
+          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+            ext.enabled ? "left-[22px]" : "left-0.5"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
 
 function ProgressBar({ progress }: { progress: InstallProgress }) {
   return (
@@ -31,7 +253,13 @@ function ProgressBar({ progress }: { progress: InstallProgress }) {
   );
 }
 
-function PhpVersionCard({ version }: { version: PhpVersion }) {
+function PhpVersionCard({
+  version,
+  onManageExtensions,
+}: {
+  version: PhpVersion;
+  onManageExtensions: (version: string) => void;
+}) {
   const installing = usePhpStore((s) => s.installing[version.version]);
   const setInstallProgress = usePhpStore((s) => s.setInstallProgress);
   const storeSwitch = usePhpStore((s) => s.switchVersion);
@@ -48,7 +276,6 @@ function PhpVersionCard({ version }: { version: PhpVersion }) {
     try {
       await installPhpVersion(version.version);
       toast.success(`PHP ${version.version} installed!`);
-      // Clear progress and refresh version list
       setInstallProgress(version.version, null);
       refreshVersions();
     } catch (err) {
@@ -127,6 +354,13 @@ function PhpVersionCard({ version }: { version: PhpVersion }) {
               >
                 {version.isActive ? "Currently Active" : "Switch to This"}
               </button>
+              <button
+                onClick={() => onManageExtensions(version.version)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-secondary hover:border-primary hover:text-primary transition-colors"
+              >
+                <Settings2 className="w-4 h-4" />
+                Extensions
+              </button>
             </>
           ) : (
             <button
@@ -164,17 +398,18 @@ export default function PhpVersions() {
   const versions = usePhpStore((s) => s.versions);
   const currentVersion = usePhpStore((s) => s.currentVersion);
   const setInstallProgress = usePhpStore((s) => s.setInstallProgress);
+  const [extensionsVersion, setExtensionsVersion] = useState<string | null>(
+    null
+  );
 
   useEffect(() => {
     refreshVersions();
 
-    // Listen for progress events from the Rust backend
     let unlisten: (() => void) | null = null;
 
     listenToEvent<InstallProgress>("php-install-progress", (payload) => {
       setInstallProgress(payload.version, payload);
       if (payload.stage === "complete") {
-        // Refresh after a short delay to let the filesystem settle
         setTimeout(refreshVersions, 500);
       }
     }).then((fn) => {
@@ -200,9 +435,21 @@ export default function PhpVersions() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {versions.map((version) => (
-          <PhpVersionCard key={version.version} version={version} />
+          <PhpVersionCard
+            key={version.version}
+            version={version}
+            onManageExtensions={setExtensionsVersion}
+          />
         ))}
       </div>
+
+      {/* Extensions Modal */}
+      {extensionsVersion && (
+        <ExtensionsModal
+          version={extensionsVersion}
+          onClose={() => setExtensionsVersion(null)}
+        />
+      )}
     </div>
   );
 }

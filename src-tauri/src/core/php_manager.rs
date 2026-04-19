@@ -339,19 +339,64 @@ impl PhpManager {
                 ));
             }
 
-            // Enable common extensions on Windows
+            // Enable Laravel-required + common extensions
             #[cfg(target_os = "windows")]
             {
-                let common_exts = [
-                    "curl", "fileinfo", "gd", "intl", "mbstring", "exif",
-                    "mysqli", "openssl", "pdo_mysql", "pdo_sqlite", "zip",
+                // Extensions required by Laravel and common PHP frameworks
+                let laravel_required = [
+                    "bcmath", "ctype", "curl", "dom", "fileinfo", "filter",
+                    "gd", "iconv", "intl", "mbstring", "openssl", "pdo",
+                    "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "phar",
+                    "session", "tokenizer", "xml", "xmlwriter", "zip",
                 ];
-                content.push_str("\n; Common extensions\n");
-                for ext in &common_exts {
+                let common_extras = [
+                    "bz2", "calendar", "exif", "ftp", "gettext",
+                    "gmp", "ldap", "mysqli", "odbc", "pdo_odbc",
+                    "readline", "shmop", "simplexml", "soap", "sockets",
+                    "sodium", "sqlite3", "sysvshm", "xsl",
+                ];
+
+                content.push_str("\n; === Laravel required extensions ===\n");
+                for ext in &laravel_required {
                     let dll = ext_dir.join(format!("php_{}.dll", ext));
                     if dll.exists() {
                         content.push_str(&format!("extension={}\n", ext));
                     }
+                }
+
+                content.push_str("\n; === Common extras ===\n");
+                for ext in &common_extras {
+                    let dll = ext_dir.join(format!("php_{}.dll", ext));
+                    if dll.exists() {
+                        content.push_str(&format!("extension={}\n", ext));
+                    }
+                }
+
+                // OPcache is a zend_extension
+                let opcache_dll = ext_dir.join("php_opcache.dll");
+                if opcache_dll.exists() {
+                    content.push_str("\n; === Performance ===\n");
+                    content.push_str("zend_extension=opcache\n");
+                    content.push_str("opcache.enable=1\n");
+                    content.push_str("opcache.enable_cli=1\n");
+                    content.push_str("opcache.memory_consumption=256\n");
+                    content.push_str("opcache.max_accelerated_files=20000\n");
+                }
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                // On macOS/Linux, extensions are typically compiled in or loaded differently
+                content.push_str("\n; Extensions enabled by phpHerd\n");
+                let exts = [
+                    "bcmath", "ctype", "curl", "dom", "fileinfo", "gd",
+                    "iconv", "intl", "mbstring", "openssl", "pdo",
+                    "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "phar",
+                    "session", "tokenizer", "xml", "xmlwriter", "zip",
+                    "sodium", "sockets", "exif", "gmp",
+                ];
+                for ext in &exts {
+                    content.push_str(&format!("extension={}\n", ext));
                 }
             }
 
