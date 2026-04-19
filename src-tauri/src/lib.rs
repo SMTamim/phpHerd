@@ -93,6 +93,7 @@ pub fn run() {
             commands::services::get_services,
             commands::services::get_available_services,
             commands::services::create_service,
+            commands::services::download_service_binary,
             commands::services::start_service,
             commands::services::stop_service,
             commands::services::delete_service,

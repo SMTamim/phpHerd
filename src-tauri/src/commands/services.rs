@@ -112,7 +112,10 @@ pub async fn get_available_services() -> Result<Vec<AvailableService>, String> {
 }
 
 #[tauri::command]
-pub async fn create_service(request: CreateServiceRequest) -> Result<ServiceInfo, String> {
+pub async fn create_service(
+    request: CreateServiceRequest,
+    app_handle: tauri::AppHandle,
+) -> Result<ServiceInfo, String> {
     let id = uuid::Uuid::new_v4().to_string();
     let port = request
         .port
@@ -121,6 +124,13 @@ pub async fn create_service(request: CreateServiceRequest) -> Result<ServiceInfo
     // Create directory structure
     ServiceManager::create_service_dirs(&request.service_type, &request.version)
         .map_err(|e| e.to_string())?;
+
+    // Download binary if not already installed
+    if !ServiceManager::is_binary_installed(&request.service_type, &request.version) {
+        ServiceManager::download_binary(&request.service_type, &request.version, &app_handle)
+            .await
+            .map_err(|e| format!("Failed to download {}: {}", request.service_type, e))?;
+    }
 
     // Add to registry
     let mut registry = ServiceManager::list_services();
@@ -153,6 +163,17 @@ pub async fn create_service(request: CreateServiceRequest) -> Result<ServiceInfo
         status: "Stopped".to_string(),
         data_dir,
     })
+}
+
+#[tauri::command]
+pub async fn download_service_binary(
+    service_type: String,
+    version: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    ServiceManager::download_binary(&service_type, &version, &app_handle)
+        .await
+        .map_err(|e| format!("Failed to download {} v{}: {}", service_type, version, e))
 }
 
 #[tauri::command]

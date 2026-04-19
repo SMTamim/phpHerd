@@ -20,6 +20,7 @@ import {
   deleteService as tauriDeleteService,
   type ServiceInfoData,
   type AvailableServiceData,
+  listenToEvent,
 } from "../lib/tauri";
 import toast from "react-hot-toast";
 
@@ -168,11 +169,29 @@ function CreateServicePanel({ onClose }: { onClose: () => void }) {
   const [version, setVersion] = useState("");
   const [port, setPort] = useState("");
   const [creating, setCreating] = useState(false);
+  const [progressMsg, setProgressMsg] = useState("");
 
   useEffect(() => {
     getAvailableServices()
       .then((data) => setAvailable(data))
       .catch(() => {});
+
+    let unlisten: (() => void) | null = null;
+    listenToEvent<{
+      service_type: string;
+      version: string;
+      stage: string;
+      progress: number;
+      message: string;
+    }>("service-download-progress", (payload) => {
+      setProgressMsg(payload.message);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
   }, []);
 
   const handleSelect = (svc: AvailableServiceData) => {
@@ -184,17 +203,20 @@ function CreateServicePanel({ onClose }: { onClose: () => void }) {
   const handleCreate = async () => {
     if (!selected || !version) return;
     setCreating(true);
+    setProgressMsg("Preparing...");
     try {
       await createService({
         service_type: selected.service_type,
         version,
         port: port ? Number(port) : undefined,
       });
-      toast.success(`${selected.display_name} v${version} created`);
+      toast.success(`${selected.display_name} v${version} installed and ready!`);
+      setProgressMsg("");
       onClose();
       refreshServices();
     } catch (err) {
       toast.error(String(err));
+      setProgressMsg("");
     } finally {
       setCreating(false);
     }
@@ -278,7 +300,7 @@ function CreateServicePanel({ onClose }: { onClose: () => void }) {
               {creating ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  Creating...
+                  {progressMsg || "Creating..."}
                 </span>
               ) : (
                 `Create ${selected.display_name}`
