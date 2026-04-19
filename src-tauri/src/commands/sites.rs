@@ -162,3 +162,158 @@ pub async fn unsecure_site(site_name: String, state: State<'_, AppState>) -> Res
     }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn install_phpmyadmin(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use futures_util::StreamExt;
+    use std::io::Write;
+    use tauri::Emitter;
+
+    let config = state.config.read().await;
+    let tld = config.sites_config.tld.clone();
+
+    // Check if already linked
+    if config.sites_config.linked_sites.iter().any(|s| s.name == "pma") {
+        return Err("phpMyAdmin is already installed (pma.test)".to_string());
+    }
+    drop(config);
+
+    // Install into ~/Herd/pma
+    let install_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("Herd")
+        .join("pma");
+
+    let _ = app_handle.emit("phpmyadmin-install-progress", serde_json::json!({
+        "stage": "downloading",
+        "progress": 0,
+        "message": "Downloading phpMyAdmin...",
+    }));
+
+    let url = "https://www.phpmyadmin.net/downloads/phpMyAdmin-latest-all-languages.zip";
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .user_agent("phpHerd/0.1.0")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client.get(url).send().await.map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("Failed to download phpMyAdmin: HTTP {}", response.status()));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+
+    let temp_path = std::env::temp_dir().join("phpmyadmin.zip");
+    let mut temp_file = std::fs::File::create(&temp_path).map_err(|e| e.to_string())?;
+
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        temp_file.write_all(&chunk).map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+
+        if total_size > 0 {
+            let progress = ((downloaded as f64 / total_size as f64) * 100.0) as u32;
+            let _ = app_handle.emit("phpmyadmin-install-progress", serde_json::json!({
+                "stage": "downloading",
+                "progress": progress,
+                "message": format!("Downloading... {}%", progress),
+            }));
+        }
+    }
+    drop(temp_file);
+
+    let _ = app_handle.emit("phpmyadmin-install-progress", serde_json::json!({
+        "stage": "extracting",
+        "progress": 100,
+        "message": "Extracting...",
+    }));
+
+    if install_dir.exists() {
+        std::fs::remove_dir_all(&install_dir).ok();
+    }
+
+    // Extract — strip top-level "phpMyAdmin-x.x.x-all-languages/" prefix
+    let file = std::fs::File::open(&temp_path).map_err(|e| e.to_string())?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+
+    let common_prefix = {
+        let first = archive.by_index(0).map_err(|e| e.to_string())?.name().to_string();
+        let prefix = first.split('/').next().unwrap_or("").to_string();
+        if !prefix.is_empty() { Some(format!("{}/", prefix)) } else { None }
+    };
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
+        let raw_name = entry.name().to_string();
+
+        let relative = if let Some(ref prefix) = common_prefix {
+            if let Some(stripped) = raw_name.strip_prefix(prefix) {
+                stripped.to_string()
+            } else if raw_name.trim_end_matches('/') == prefix.trim_end_matches('/') {
+                continue;
+            } else {
+                raw_name.clone()
+            }
+        } else {
+            raw_name.clone()
+        };
+
+        if relative.is_empty() { continue; }
+
+        let out_path = install_dir.join(&relative);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path).map_err(|e| e.to_string())?;
+        } else {
+            if let Some(parent) = out_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            let mut outfile = std::fs::File::create(&out_path).map_err(|e| e.to_string())?;
+            std::io::copy(&mut entry, &mut outfile).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let _ = std::fs::remove_file(&temp_path);
+
+    // Write config.inc.php for local use
+    let config_content = r#"<?php
+$cfg['blowfish_secret'] = 'phpHerd-auto-generated-secret-key-32ch';
+$i = 0;
+$i++;
+$cfg['Servers'][$i]['auth_type'] = 'cookie';
+$cfg['Servers'][$i]['host'] = '127.0.0.1';
+$cfg['Servers'][$i]['port'] = '3306';
+$cfg['Servers'][$i]['compress'] = false;
+$cfg['Servers'][$i]['AllowNoPassword'] = true;
+$cfg['UploadDir'] = '';
+$cfg['SaveDir'] = '';
+"#;
+    std::fs::write(install_dir.join("config.inc.php"), config_content)
+        .map_err(|e| e.to_string())?;
+
+    // Link as pma.test
+    let mut config = state.config.write().await;
+    config.sites_config.linked_sites.retain(|s| s.name != "pma");
+    config.sites_config.linked_sites.push(SiteEntry {
+        name: "pma".to_string(),
+        path: install_dir.to_string_lossy().to_string(),
+        php_version: None,
+        node_version: None,
+        secured: false,
+    });
+    config.save().map_err(|e| e.to_string())?;
+
+    let _ = app_handle.emit("phpmyadmin-install-progress", serde_json::json!({
+        "stage": "complete",
+        "progress": 100,
+        "message": "phpMyAdmin installed at pma.test!",
+    }));
+
+    tracing::info!("phpMyAdmin installed to {:?}, linked as pma.{}", install_dir, tld);
+    Ok(())
+}

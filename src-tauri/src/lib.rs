@@ -85,6 +85,7 @@ pub fn run() {
             commands::sites::isolate_site_php,
             commands::sites::secure_site,
             commands::sites::unsecure_site,
+            commands::sites::install_phpmyadmin,
             commands::nginx::get_nginx_status,
             commands::nginx::install_nginx,
             commands::nginx::start_nginx,

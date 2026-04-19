@@ -76,6 +76,7 @@ export const unsecureSite = (siteName: string) =>
   invoke<void>("unsecure_site", { siteName });
 export const isolateSitePhp = (siteName: string, phpVersion: string) =>
   invoke<void>("isolate_site_php", { siteName, phpVersion });
+export const installPhpmyadmin = () => invoke<void>("install_phpmyadmin");
 
 // -- Service commands --
 export interface ServiceInfoData {

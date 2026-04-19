@@ -18,6 +18,8 @@ import { useServicesStore } from "../stores/services";
 import {
   getPhpVersions,
   getNginxStatus,
+  installPhpmyadmin,
+  listenToEvent,
   installNginx,
   startNginx,
   stopNginx,
@@ -73,6 +75,8 @@ export default function Dashboard() {
 
   const [nginx, setNginx] = useState<NginxStatusInfo | null>(null);
   const [nginxLoading, setNginxLoading] = useState(false);
+  const [pmaInstalling, setPmaInstalling] = useState(false);
+  const [pmaProgress, setPmaProgress] = useState("");
 
   const refreshNginx = async () => {
     try {
@@ -98,6 +102,14 @@ export default function Dashboard() {
       )
       .catch(() => {});
     refreshNginx();
+
+    let unlisten: (() => void) | null = null;
+    listenToEvent<{ stage: string; progress: number; message: string }>(
+      "phpmyadmin-install-progress",
+      (payload) => setPmaProgress(payload.message)
+    ).then((fn) => { unlisten = fn; });
+
+    return () => { unlisten?.(); };
   }, []);
 
   const handleNginxToggle = async () => {
@@ -124,6 +136,22 @@ export default function Dashboard() {
       toast.error(msg);
     } finally {
       setNginxLoading(false);
+    }
+  };
+
+  const handlePmaInstall = async () => {
+    setPmaInstalling(true);
+    setPmaProgress("Starting...");
+    try {
+      await installPhpmyadmin();
+      toast.success("phpMyAdmin installed at pma.test!");
+      setPmaProgress("");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg);
+      setPmaProgress("");
+    } finally {
+      setPmaInstalling(false);
     }
   };
 
@@ -216,7 +244,7 @@ export default function Dashboard() {
         <h2 className="text-lg font-semibold text-text-primary mb-4">
           Quick Actions
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <button
             onClick={() => navigate("/sites")}
             className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary-light/50 transition-colors text-left"
@@ -256,6 +284,25 @@ export default function Dashboard() {
               </p>
               <p className="text-xs text-text-secondary">
                 MySQL, Redis, PostgreSQL, etc.
+              </p>
+            </div>
+          </button>
+          <button
+            onClick={handlePmaInstall}
+            disabled={pmaInstalling}
+            className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-primary-light/50 transition-colors text-left disabled:opacity-60"
+          >
+            {pmaInstalling ? (
+              <Loader2 className="w-5 h-5 text-primary animate-spin" />
+            ) : (
+              <Download className="w-5 h-5 text-primary" />
+            )}
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                {pmaInstalling ? "Installing..." : "phpMyAdmin"}
+              </p>
+              <p className="text-xs text-text-secondary">
+                {pmaInstalling ? pmaProgress : "Install at pma.test"}
               </p>
             </div>
           </button>
