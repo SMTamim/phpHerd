@@ -1,11 +1,13 @@
-import { useState } from "react";
-import { Save } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Save, CheckCircle, Terminal } from "lucide-react";
 import { useSettingsStore } from "../stores/settings";
+import { addBinToPath, checkBinOnPath } from "../lib/tauri";
 import toast from "react-hot-toast";
 
 export default function Settings() {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+  const [onPath, setOnPath] = useState<boolean | null>(null);
 
   const [form, setForm] = useState({
     tld: settings.tld,
@@ -14,6 +16,12 @@ export default function Settings() {
     smtpPort: settings.smtpPort,
     dumpPort: settings.dumpPort,
   });
+
+  useEffect(() => {
+    checkBinOnPath()
+      .then(setOnPath)
+      .catch(() => setOnPath(null));
+  }, []);
 
   const handleSave = () => {
     updateSettings({
@@ -25,6 +33,21 @@ export default function Settings() {
       dumpPort: form.dumpPort,
     });
     toast.success("Settings saved");
+  };
+
+  const handleAddToPath = async () => {
+    try {
+      const added = await addBinToPath();
+      if (added) {
+        toast.success("Added to PATH. Restart your terminal to use php and composer globally.");
+        setOnPath(true);
+      } else {
+        toast("Already on PATH");
+        setOnPath(true);
+      }
+    } catch (err) {
+      toast.error(String(err));
+    }
   };
 
   return (
@@ -46,6 +69,47 @@ export default function Settings() {
       </div>
 
       <div className="max-w-2xl space-y-6">
+        {/* Environment PATH */}
+        <div className="bg-surface rounded-xl border border-border p-6">
+          <h2 className="text-lg font-semibold text-text-primary mb-2">
+            Terminal Integration
+          </h2>
+          <p className="text-sm text-text-secondary mb-4">
+            Add phpHerd's bin directory to your system PATH so you can use{" "}
+            <code className="px-1.5 py-0.5 rounded bg-gray-100 text-xs font-mono">php</code>,{" "}
+            <code className="px-1.5 py-0.5 rounded bg-gray-100 text-xs font-mono">composer</code>,{" "}
+            and{" "}
+            <code className="px-1.5 py-0.5 rounded bg-gray-100 text-xs font-mono">node</code>{" "}
+            from any terminal.
+          </p>
+
+          {onPath === true ? (
+            <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-green-50 border border-green-200">
+              <CheckCircle className="w-5 h-5 text-success" />
+              <div>
+                <p className="text-sm font-medium text-green-800">
+                  phpHerd bin is on your PATH
+                </p>
+                <p className="text-xs text-green-600 font-mono mt-0.5">
+                  php, composer, and node are available in all terminals
+                </p>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={handleAddToPath}
+              className="flex items-center gap-2 px-4 py-3 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary-hover transition-colors"
+            >
+              <Terminal className="w-4 h-4" />
+              Add to System PATH
+            </button>
+          )}
+
+          <p className="text-xs text-text-muted mt-3">
+            After adding, restart VS Code or open a new terminal for changes to take effect.
+          </p>
+        </div>
+
         {/* General */}
         <div className="bg-surface rounded-xl border border-border p-6">
           <h2 className="text-lg font-semibold text-text-primary mb-4">

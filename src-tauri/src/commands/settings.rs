@@ -42,3 +42,95 @@ pub async fn update_settings(
     config.save().map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tauri::command]
+pub async fn add_bin_to_path() -> Result<bool, String> {
+    let bin_dir = crate::core::config::AppConfig::data_dir()
+        .join("bin")
+        .to_string_lossy()
+        .to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+
+        // Read current user PATH
+        let output = std::process::Command::new("powershell")
+            .creation_flags(0x08000000)
+            .args([
+                "-NoProfile",
+                "-Command",
+                "[Environment]::GetEnvironmentVariable('PATH', 'User')",
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        if current.to_lowercase().contains(&bin_dir.to_lowercase()) {
+            return Ok(false); // Already on PATH
+        }
+
+        // Add to user PATH
+        let new_path = format!("{};{}", bin_dir, current);
+        let status = std::process::Command::new("powershell")
+            .creation_flags(0x08000000)
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "[Environment]::SetEnvironmentVariable('PATH', '{}', 'User')",
+                    new_path.replace('\'', "''")
+                ),
+            ])
+            .status()
+            .map_err(|e| e.to_string())?;
+
+        if !status.success() {
+            return Err("Failed to update PATH".to_string());
+        }
+
+        tracing::info!("Added {} to user PATH", bin_dir);
+        Ok(true)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // On Unix, suggest adding to shell profile
+        Err(format!(
+            "Add this to your shell profile (~/.bashrc or ~/.zshrc):\nexport PATH=\"{}:$PATH\"",
+            bin_dir
+        ))
+    }
+}
+
+#[tauri::command]
+pub async fn check_bin_on_path() -> Result<bool, String> {
+    let bin_dir = crate::core::config::AppConfig::data_dir()
+        .join("bin")
+        .to_string_lossy()
+        .to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let output = std::process::Command::new("powershell")
+            .creation_flags(0x08000000)
+            .args([
+                "-NoProfile",
+                "-Command",
+                "[Environment]::GetEnvironmentVariable('PATH', 'User')",
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        let current = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(current.to_lowercase().contains(&bin_dir.to_lowercase()))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let path = std::env::var("PATH").unwrap_or_default();
+        Ok(path.contains(&bin_dir))
+    }
+}

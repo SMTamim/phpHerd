@@ -186,6 +186,8 @@ export const listUserGrants = (serviceType: string, version: string, port: numbe
 export const getSettings = () => invoke<unknown>("get_settings");
 export const updateSettings = (settings: unknown) =>
   invoke<void>("update_settings", { settings });
+export const addBinToPath = () => invoke<boolean>("add_bin_to_path");
+export const checkBinOnPath = () => invoke<boolean>("check_bin_on_path");
 
 // -- Site commands --
 export interface SiteInfo {

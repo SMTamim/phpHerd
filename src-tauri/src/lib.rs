@@ -119,6 +119,8 @@ pub fn run() {
             commands::dns::sync_hosts_file,
             commands::settings::get_settings,
             commands::settings::update_settings,
+            commands::settings::add_bin_to_path,
+            commands::settings::check_bin_on_path,
             commands::dumps::get_dumps,
             commands::dumps::clear_dumps,
             commands::logs::get_log_files,
