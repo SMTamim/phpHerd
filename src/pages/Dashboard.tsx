@@ -24,6 +24,8 @@ import {
   installNginx,
   startNginx,
   stopNginx,
+  getServices,
+  startService,
   type NginxStatusInfo,
 } from "../lib/tauri";
 import toast from "react-hot-toast";
@@ -79,6 +81,7 @@ export default function Dashboard() {
   const [pmaInstalling, setPmaInstalling] = useState(false);
   const [pmaProgress, setPmaProgress] = useState("");
   const [dnsLoading, setDnsLoading] = useState(false);
+  const [startingAll, setStartingAll] = useState(false);
 
   const refreshNginx = async () => {
     try {
@@ -141,6 +144,56 @@ export default function Dashboard() {
     }
   };
 
+  const handleStartAll = async () => {
+    setStartingAll(true);
+    const results: string[] = [];
+    try {
+      // 1. Sync hosts file
+      try {
+        await syncHostsFile();
+        results.push("DNS synced");
+      } catch {
+        results.push("DNS sync failed (run as Admin)");
+      }
+
+      // 2. Start Nginx
+      if (nginx?.installed && !nginx?.running) {
+        try {
+          await startNginx();
+          results.push("Nginx started");
+          await refreshNginx();
+        } catch {
+          results.push("Nginx failed to start");
+        }
+      } else if (nginx?.running) {
+        results.push("Nginx already running");
+      }
+
+      // 3. Start all stopped services
+      try {
+        const svcs = await getServices();
+        const stopped = svcs.filter((s) => s.status !== "Running");
+        for (const svc of stopped) {
+          try {
+            await startService(svc.id);
+            results.push(`${svc.service_type} started`);
+          } catch {
+            results.push(`${svc.service_type} failed`);
+          }
+        }
+        if (stopped.length === 0 && svcs.length > 0) {
+          results.push("All services already running");
+        }
+      } catch {
+        // no services
+      }
+
+      toast.success(results.join(" | "));
+    } finally {
+      setStartingAll(false);
+    }
+  };
+
   const handleSyncDns = async () => {
     setDnsLoading(true);
     try {
@@ -186,6 +239,22 @@ export default function Dashboard() {
         <p className="text-text-secondary mt-1">
           Overview of your development environment
         </p>
+      </div>
+
+      {/* Start All */}
+      <div className="mb-8">
+        <button
+          onClick={handleStartAll}
+          disabled={startingAll}
+          className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-xl bg-primary text-white text-base font-semibold hover:bg-primary-hover transition-colors disabled:opacity-60"
+        >
+          {startingAll ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <Play className="w-5 h-5" />
+          )}
+          {startingAll ? "Starting everything..." : "Start All Services"}
+        </button>
       </div>
 
       {/* Stats Grid */}
