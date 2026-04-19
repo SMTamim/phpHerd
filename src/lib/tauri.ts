@@ -78,16 +78,36 @@ export const isolateSitePhp = (siteName: string, phpVersion: string) =>
   invoke<void>("isolate_site_php", { siteName, phpVersion });
 
 // -- Service commands --
-export const getServices = () => invoke<unknown[]>("get_services");
+export interface ServiceInfoData {
+  id: string;
+  service_type: string;
+  version: string;
+  port: number;
+  status: string;
+  data_dir: string;
+}
+
+export interface AvailableServiceData {
+  service_type: string;
+  display_name: string;
+  versions: string[];
+  default_port: number;
+}
+
+export const getServices = () => invoke<ServiceInfoData[]>("get_services");
+export const getAvailableServices = () =>
+  invoke<AvailableServiceData[]>("get_available_services");
 export const createService = (request: {
   service_type: string;
   version: string;
   port?: number;
-}) => invoke<unknown>("create_service", { request });
+}) => invoke<ServiceInfoData>("create_service", { request });
 export const startService = (serviceId: string) =>
   invoke<void>("start_service", { serviceId });
 export const stopService = (serviceId: string) =>
   invoke<void>("stop_service", { serviceId });
+export const deleteService = (serviceId: string) =>
+  invoke<void>("delete_service", { serviceId });
 
 // -- Settings commands --
 export const getSettings = () => invoke<unknown>("get_settings");
