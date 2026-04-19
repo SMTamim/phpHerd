@@ -330,7 +330,7 @@ export default function Dashboard() {
         </h2>
         <p className="text-sm text-text-secondary mb-4">
           Updates your system hosts file so .test domains resolve to 127.0.0.1.
-          Requires running as Administrator.
+          A UAC prompt will appear for permission.
         </p>
         <button
           onClick={handleSyncDns}

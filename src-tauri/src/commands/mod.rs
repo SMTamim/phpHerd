@@ -1,3 +1,4 @@
+pub mod database;
 pub mod dns;
 pub mod dumps;
 pub mod logs;

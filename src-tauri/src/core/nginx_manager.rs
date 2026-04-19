@@ -252,6 +252,8 @@ http {{
         secured: bool,
     ) -> Result<String> {
         let ssl_dir = AppConfig::data_dir().join("config").join("ssl").join("certs");
+        let fastcgi_params = Self::nginx_dir().join("conf").join("fastcgi_params")
+            .to_string_lossy().replace('\\', "/");
 
         let mut config = String::new();
 
@@ -260,7 +262,7 @@ http {{
                 r#"server {{
     listen 443 ssl http2;
     server_name {name}.{tld};
-    root "{root_path}/public";
+    root "{root_path}";
 
     ssl_certificate "{ssl_dir}/{name}.{tld}.crt";
     ssl_certificate_key "{ssl_dir}/{name}.{tld}.key";
@@ -274,7 +276,7 @@ http {{
     location ~ \.php$ {{
         fastcgi_pass {php_fpm_socket};
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
+        include "{fastcgi_params}";
     }}
 
     location ~ /\.ht {{
@@ -293,13 +295,14 @@ server {{
                 root_path = root_path.replace('\\', "/"),
                 ssl_dir = ssl_dir.to_string_lossy().replace('\\', "/"),
                 php_fpm_socket = php_fpm_socket,
+                fastcgi_params = fastcgi_params,
             ));
         } else {
             config.push_str(&format!(
                 r#"server {{
     listen 80;
     server_name {name}.{tld};
-    root "{root_path}/public";
+    root "{root_path}";
 
     index index.php index.html index.htm;
 
@@ -310,7 +313,7 @@ server {{
     location ~ \.php$ {{
         fastcgi_pass {php_fpm_socket};
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
+        include "{fastcgi_params}";
     }}
 
     location ~ /\.ht {{
@@ -322,6 +325,7 @@ server {{
                 tld = tld,
                 root_path = root_path.replace('\\', "/"),
                 php_fpm_socket = php_fpm_socket,
+                fastcgi_params = fastcgi_params,
             ));
         }
 

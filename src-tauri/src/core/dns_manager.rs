@@ -51,8 +51,7 @@ impl DnsManager {
     }
 
     /// Sync the hosts file with all .test domains.
-    /// Collects all linked + parked site names and writes them as 127.0.0.1 entries.
-    /// Requires admin privileges on Windows.
+    /// On Windows, uses UAC elevation via PowerShell if direct write fails.
     pub fn sync_hosts_file(site_names: &[String], tld: &str) -> Result<()> {
         let hosts_path = Self::hosts_file_path();
         let content = std::fs::read_to_string(&hosts_path).unwrap_or_default();
@@ -70,18 +69,92 @@ impl DnsManager {
         block.push_str(Self::HOSTS_MARKER_END);
         block.push('\n');
 
-        // Append block
+        // Assemble final content
         let mut new_content = cleaned.trim_end().to_string();
         new_content.push_str("\n\n");
         new_content.push_str(&block);
 
-        std::fs::write(&hosts_path, new_content)?;
+        // Try direct write first
+        match std::fs::write(&hosts_path, &new_content) {
+            Ok(()) => {
+                tracing::info!(
+                    "Updated hosts file with {} entries for .{} domains",
+                    site_names.len(),
+                    tld
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::info!("Direct hosts write failed ({}), requesting elevation...", e);
+            }
+        }
 
-        tracing::info!(
-            "Updated hosts file with {} entries for .{} domains",
-            site_names.len(),
-            tld
+        // Elevate on Windows via PowerShell
+        #[cfg(target_os = "windows")]
+        {
+            Self::write_hosts_elevated(&new_content)?;
+            tracing::info!(
+                "Updated hosts file (elevated) with {} entries for .{} domains",
+                site_names.len(),
+                tld
+            );
+            return Ok(());
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            anyhow::bail!("Permission denied writing hosts file. Run with sudo.");
+        }
+    }
+
+    /// Write hosts file content using UAC elevation on Windows.
+    /// Writes to a temp file, then uses PowerShell Start-Process -Verb RunAs
+    /// to copy it over the real hosts file.
+    #[cfg(target_os = "windows")]
+    fn write_hosts_elevated(content: &str) -> Result<()> {
+        use std::os::windows::process::CommandExt;
+
+        // Write desired hosts content to a temp file
+        let temp_hosts = std::env::temp_dir().join("pherd_hosts.tmp");
+        std::fs::write(&temp_hosts, content)?;
+
+        // Write a small PS1 script that does the copy
+        let temp_script = std::env::temp_dir().join("pherd_update_hosts.ps1");
+        let script = format!(
+            "Copy-Item -LiteralPath '{}' -Destination '{}' -Force\r\n",
+            temp_hosts.to_string_lossy(),
+            Self::hosts_file_path().to_string_lossy(),
         );
+        std::fs::write(&temp_script, &script)?;
+
+        // Run the script elevated via Start-Process -Verb RunAs
+        // CREATE_NO_WINDOW = 0x08000000
+        let status = std::process::Command::new("powershell")
+            .creation_flags(0x08000000)
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!(
+                    "Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','{}'",
+                    temp_script.to_string_lossy()
+                ),
+            ])
+            .status()?;
+
+        // Cleanup
+        let _ = std::fs::remove_file(&temp_hosts);
+        let _ = std::fs::remove_file(&temp_script);
+
+        if !status.success() {
+            anyhow::bail!("UAC elevation was cancelled or failed");
+        }
+
+        // Verify
+        let written = std::fs::read_to_string(Self::hosts_file_path())?;
+        if !written.contains(Self::HOSTS_MARKER_BEGIN) {
+            anyhow::bail!("Hosts file update failed — markers not found after write");
+        }
+
         Ok(())
     }
 

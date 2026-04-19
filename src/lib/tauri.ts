@@ -113,6 +113,41 @@ export const stopService = (serviceId: string) =>
 export const deleteService = (serviceId: string) =>
   invoke<void>("delete_service", { serviceId });
 
+// -- Database commands --
+export interface DbUser {
+  username: string;
+  host: string;
+}
+export interface DbName {
+  name: string;
+}
+export const listDbUsers = (serviceType: string, version: string, port: number) =>
+  invoke<DbUser[]>("list_db_users", { serviceType, version, port });
+export const createDbUser = (request: {
+  service_type: string;
+  version: string;
+  port: number;
+  username: string;
+  password: string;
+}) => invoke<void>("create_db_user", { request });
+export const dropDbUser = (request: {
+  service_type: string;
+  version: string;
+  port: number;
+  username: string;
+}) => invoke<void>("drop_db_user", { request });
+export const listDatabases = (serviceType: string, version: string, port: number) =>
+  invoke<DbName[]>("list_databases", { serviceType, version, port });
+export const createDatabase = (request: {
+  service_type: string;
+  version: string;
+  port: number;
+  db_name: string;
+  owner?: string;
+}) => invoke<void>("create_database", { request });
+export const dropDatabase = (serviceType: string, version: string, port: number, dbName: string) =>
+  invoke<void>("drop_database", { serviceType, version, port, dbName });
+
 // -- Settings commands --
 export const getSettings = () => invoke<unknown>("get_settings");
 export const updateSettings = (settings: unknown) =>

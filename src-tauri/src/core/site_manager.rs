@@ -34,6 +34,17 @@ pub fn document_root(project_path: &Path, framework: &FrameworkType) -> String {
     root.to_string_lossy().to_string()
 }
 
+pub struct SiteManager;
+
+impl SiteManager {
+    /// Detect the document root for a project path
+    pub fn detect_document_root(project_path: &str) -> String {
+        let path = std::path::Path::new(project_path);
+        let framework = detect_framework(path);
+        document_root(path, &framework)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrameworkType {
     Laravel,

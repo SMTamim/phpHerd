@@ -9,6 +9,8 @@ import {
   XCircle,
   X,
   Loader2,
+  Users,
+  HardDrive,
 } from "lucide-react";
 import { useServicesStore, type ServiceInstance } from "../stores/services";
 import {
@@ -18,6 +20,14 @@ import {
   startService as tauriStartService,
   stopService as tauriStopService,
   deleteService as tauriDeleteService,
+  listDbUsers,
+  createDbUser,
+  dropDbUser,
+  listDatabases,
+  createDatabase,
+  dropDatabase,
+  type DbUser,
+  type DbName,
   type ServiceInfoData,
   type AvailableServiceData,
   listenToEvent,
@@ -44,9 +54,233 @@ async function refreshServices() {
   }
 }
 
+const DB_TYPES = ["mysql", "mariadb", "postgresql"];
+
+function DatabasePanel({ service }: { service: ServiceInstance }) {
+  const [tab, setTab] = useState<"users" | "databases">("users");
+  const [users, setUsers] = useState<DbUser[]>([]);
+  const [databases, setDatabases] = useState<DbName[]>([]);
+  const [newUser, setNewUser] = useState("");
+  const [newPass, setNewPass] = useState("");
+  const [newDb, setNewDb] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const [u, d] = await Promise.all([
+        listDbUsers(service.serviceType, service.version, service.port),
+        listDatabases(service.serviceType, service.version, service.port),
+      ]);
+      setUsers(u);
+      setDatabases(d);
+    } catch (err) {
+      toast.error(`Failed to query ${service.serviceType}: ${err}`);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const handleCreateUser = async () => {
+    if (!newUser.trim()) return;
+    setLoading(true);
+    try {
+      await createDbUser({
+        service_type: service.serviceType,
+        version: service.version,
+        port: service.port,
+        username: newUser.trim(),
+        password: newPass || newUser.trim(),
+      });
+      toast.success(`User '${newUser}' created`);
+      setNewUser("");
+      setNewPass("");
+      refresh();
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDropUser = async (username: string) => {
+    try {
+      await dropDbUser({
+        service_type: service.serviceType,
+        version: service.version,
+        port: service.port,
+        username,
+      });
+      toast.success(`User '${username}' dropped`);
+      refresh();
+    } catch (err) {
+      toast.error(String(err));
+    }
+  };
+
+  const handleCreateDb = async () => {
+    if (!newDb.trim()) return;
+    setLoading(true);
+    try {
+      await createDatabase({
+        service_type: service.serviceType,
+        version: service.version,
+        port: service.port,
+        db_name: newDb.trim(),
+      });
+      toast.success(`Database '${newDb}' created`);
+      setNewDb("");
+      refresh();
+    } catch (err) {
+      toast.error(String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDropDb = async (name: string) => {
+    try {
+      await dropDatabase(service.serviceType, service.version, service.port, name);
+      toast.success(`Database '${name}' dropped`);
+      refresh();
+    } catch (err) {
+      toast.error(String(err));
+    }
+  };
+
+  const systemDbs = ["mysql", "information_schema", "performance_schema", "sys", "postgres", "template0", "template1"];
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border">
+      {/* Tabs */}
+      <div className="flex gap-1 mb-3">
+        <button
+          onClick={() => setTab("users")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            tab === "users" ? "bg-primary text-white" : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+          }`}
+        >
+          <Users className="w-3 h-3" />
+          Users
+        </button>
+        <button
+          onClick={() => setTab("databases")}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            tab === "databases" ? "bg-primary text-white" : "bg-gray-100 text-text-secondary hover:bg-gray-200"
+          }`}
+        >
+          <HardDrive className="w-3 h-3" />
+          Databases
+        </button>
+      </div>
+
+      {tab === "users" && (
+        <div>
+          {/* Create user form */}
+          <div className="flex gap-2 mb-3">
+            <input
+              type="text"
+              value={newUser}
+              onChange={(e) => setNewUser(e.target.value)}
+              placeholder="Username"
+              className="flex-1 px-2 py-1.5 rounded-lg border border-border text-xs focus:outline-none focus:border-primary"
+            />
+            <input
+              type="text"
+              value={newPass}
+              onChange={(e) => setNewPass(e.target.value)}
+              placeholder="Password"
+              className="flex-1 px-2 py-1.5 rounded-lg border border-border text-xs focus:outline-none focus:border-primary"
+            />
+            <button
+              onClick={handleCreateUser}
+              disabled={loading || !newUser.trim()}
+              className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary-hover disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Add"}
+            </button>
+          </div>
+          {/* User list */}
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {users.map((u) => (
+              <div
+                key={`${u.username}@${u.host}`}
+                className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50 text-xs"
+              >
+                <span className="font-mono text-text-primary">
+                  {u.username}
+                  <span className="text-text-muted">@{u.host}</span>
+                </span>
+                {u.username !== "root" && u.username !== "postgres" && (
+                  <button
+                    onClick={() => handleDropUser(u.username)}
+                    className="text-danger hover:underline"
+                  >
+                    Drop
+                  </button>
+                )}
+              </div>
+            ))}
+            {users.length === 0 && (
+              <p className="text-xs text-text-muted py-2">No users found. Is the service running?</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "databases" && (
+        <div>
+          {/* Create database form */}
+          <div className="flex gap-2 mb-3">
+            <input
+              type="text"
+              value={newDb}
+              onChange={(e) => setNewDb(e.target.value)}
+              placeholder="Database name"
+              className="flex-1 px-2 py-1.5 rounded-lg border border-border text-xs focus:outline-none focus:border-primary"
+            />
+            <button
+              onClick={handleCreateDb}
+              disabled={loading || !newDb.trim()}
+              className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary-hover disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Create"}
+            </button>
+          </div>
+          {/* Database list */}
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {databases.map((db) => (
+              <div
+                key={db.name}
+                className="flex items-center justify-between py-1 px-2 rounded hover:bg-gray-50 text-xs"
+              >
+                <span className="font-mono text-text-primary">{db.name}</span>
+                {!systemDbs.includes(db.name) && (
+                  <button
+                    onClick={() => handleDropDb(db.name)}
+                    className="text-danger hover:underline"
+                  >
+                    Drop
+                  </button>
+                )}
+              </div>
+            ))}
+            {databases.length === 0 && (
+              <p className="text-xs text-text-muted py-2">No databases found. Is the service running?</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ServiceCard({ service }: { service: ServiceInstance }) {
   const [loading, setLoading] = useState(false);
+  const [showManage, setShowManage] = useState(false);
   const isRunning = service.status === "Running";
+  const isDatabase = DB_TYPES.includes(service.serviceType);
 
   const handleStart = async () => {
     setLoading(true);
@@ -158,7 +392,22 @@ function ServiceCard({ service }: { service: ServiceInstance }) {
           <Trash2 className="w-3 h-3" />
           Delete
         </button>
+        {isDatabase && isRunning && (
+          <button
+            onClick={() => setShowManage(!showManage)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              showManage
+                ? "bg-primary text-white"
+                : "bg-primary/10 text-primary hover:bg-primary/20"
+            }`}
+          >
+            <Users className="w-3 h-3" />
+            Manage
+          </button>
+        )}
       </div>
+
+      {showManage && isRunning && <DatabasePanel service={service} />}
     </div>
   );
 }
