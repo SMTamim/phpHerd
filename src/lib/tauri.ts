@@ -45,6 +45,9 @@ export const installNodeVersion = (version: string) =>
 export const switchNodeVersion = (version: string) =>
   invoke<void>("switch_node_version", { version });
 
+// -- DNS commands --
+export const syncHostsFile = () => invoke<number>("sync_hosts_file");
+
 // -- Nginx commands --
 export interface NginxStatusInfo {
   running: boolean;

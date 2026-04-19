@@ -102,6 +102,8 @@ pub fn run() {
             commands::node::get_current_node_version,
             commands::node::install_node_version,
             commands::node::switch_node_version,
+            commands::dns::get_dns_status,
+            commands::dns::sync_hosts_file,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::dumps::get_dumps,

@@ -19,6 +19,7 @@ import {
   getPhpVersions,
   getNginxStatus,
   installPhpmyadmin,
+  syncHostsFile,
   listenToEvent,
   installNginx,
   startNginx,
@@ -77,6 +78,7 @@ export default function Dashboard() {
   const [nginxLoading, setNginxLoading] = useState(false);
   const [pmaInstalling, setPmaInstalling] = useState(false);
   const [pmaProgress, setPmaProgress] = useState("");
+  const [dnsLoading, setDnsLoading] = useState(false);
 
   const refreshNginx = async () => {
     try {
@@ -136,6 +138,19 @@ export default function Dashboard() {
       toast.error(msg);
     } finally {
       setNginxLoading(false);
+    }
+  };
+
+  const handleSyncDns = async () => {
+    setDnsLoading(true);
+    try {
+      const count = await syncHostsFile();
+      toast.success(`Hosts file updated with ${count} site(s). All .test domains now resolve to 127.0.0.1`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg);
+    } finally {
+      setDnsLoading(false);
     }
   };
 
@@ -237,6 +252,29 @@ export default function Dashboard() {
             </>
           )}
         </div>
+      </div>
+
+      {/* DNS / Hosts */}
+      <div className="bg-surface rounded-xl border border-border p-6 mb-8">
+        <h2 className="text-lg font-semibold text-text-primary mb-2">
+          DNS Resolution
+        </h2>
+        <p className="text-sm text-text-secondary mb-4">
+          Updates your system hosts file so .test domains resolve to 127.0.0.1.
+          Requires running as Administrator.
+        </p>
+        <button
+          onClick={handleSyncDns}
+          disabled={dnsLoading}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary-hover transition-colors disabled:opacity-50"
+        >
+          {dnsLoading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Globe className="w-4 h-4" />
+          )}
+          Sync Hosts File
+        </button>
       </div>
 
       {/* Quick Actions */}
