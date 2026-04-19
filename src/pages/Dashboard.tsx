@@ -26,8 +26,10 @@ import {
   installNginx,
   startNginx,
   stopNginx,
+  restartNginx,
   getServices,
   startService,
+  stopService,
   type NginxStatusInfo,
 } from "../lib/tauri";
 import toast from "react-hot-toast";
@@ -87,6 +89,7 @@ export default function Dashboard() {
   const [composerInstalling, setComposerInstalling] = useState(false);
   const [dnsLoading, setDnsLoading] = useState(false);
   const [startingAll, setStartingAll] = useState(false);
+  const [restartingAll, setRestartingAll] = useState(false);
 
   const refreshNginx = async () => {
     try {
@@ -205,6 +208,45 @@ export default function Dashboard() {
     }
   };
 
+  const handleRestartAll = async () => {
+    setRestartingAll(true);
+    const results: string[] = [];
+    try {
+      // 1. Restart Nginx (+ PHP-CGI)
+      if (nginx?.installed) {
+        try {
+          await restartNginx();
+          results.push("Nginx restarted");
+          await refreshNginx();
+        } catch {
+          results.push("Nginx restart failed");
+        }
+      }
+
+      // 2. Restart all services (stop then start)
+      try {
+        const svcs = await getServices();
+        for (const svc of svcs) {
+          try {
+            if (svc.status === "Running") {
+              await stopService(svc.id);
+            }
+            await startService(svc.id);
+            results.push(`${svc.service_type} restarted`);
+          } catch {
+            results.push(`${svc.service_type} failed`);
+          }
+        }
+      } catch {
+        // no services
+      }
+
+      toast.success(results.join(" | "));
+    } finally {
+      setRestartingAll(false);
+    }
+  };
+
   const handleSyncDns = async () => {
     setDnsLoading(true);
     try {
@@ -267,19 +309,31 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Start All */}
-      <div className="mb-8">
+      {/* Start / Restart All */}
+      <div className="mb-8 flex gap-4">
         <button
           onClick={handleStartAll}
-          disabled={startingAll}
-          className="w-full flex items-center justify-center gap-3 px-6 py-4 rounded-xl bg-primary text-white text-base font-semibold hover:bg-primary-hover transition-colors disabled:opacity-60"
+          disabled={startingAll || restartingAll}
+          className="flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-xl bg-primary text-white text-base font-semibold hover:bg-primary-hover transition-colors disabled:opacity-60"
         >
           {startingAll ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
             <Play className="w-5 h-5" />
           )}
-          {startingAll ? "Starting everything..." : "Start All Services"}
+          {startingAll ? "Starting..." : "Start All Services"}
+        </button>
+        <button
+          onClick={handleRestartAll}
+          disabled={startingAll || restartingAll}
+          className="flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-xl border-2 border-primary text-primary text-base font-semibold hover:bg-primary-light/50 transition-colors disabled:opacity-60"
+        >
+          {restartingAll ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <Server className="w-5 h-5" />
+          )}
+          {restartingAll ? "Restarting..." : "Restart All Services"}
         </button>
       </div>
 
